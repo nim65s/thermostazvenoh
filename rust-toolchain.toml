@@ -1,0 +1,5 @@
+[toolchain]
+channel = "nightly-2025-12-01"
+components = ["rust-analyzer", "rust-src"]
+targets = ["riscv32imc-unknown-none-elf"]
+profile = "default"
