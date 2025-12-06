@@ -6,11 +6,13 @@
     holding buffers for the duration of a data transfer."
 )]
 
-use core::net::Ipv4Addr;
+use core::num::NonZeroU32;
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_net::{Runner, StackResources, tcp::TcpSocket};
+use embassy_net::{Runner, StackResources};
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
@@ -24,6 +26,9 @@ use esp_radio::{
         ClientConfig, ModeConfig, ScanConfig, WifiController, WifiDevice, WifiEvent, WifiStaState,
     },
 };
+use getrandom::{Error, register_custom_getrandom};
+use zenoh_nostd::{EndPoint, keyexpr};
+use zenoh_nostd_embassy::PlatformEmbassy;
 
 extern crate alloc;
 
@@ -43,6 +48,22 @@ macro_rules! mk_static {
 
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
+const CONNECT: &str = env!("CONNECT");
+
+static RNG: Mutex<CriticalSectionRawMutex, Option<Rng>> = Mutex::new(None);
+
+register_custom_getrandom!(getrandom_custom);
+const MY_CUSTOM_ERROR_CODE: u32 = Error::CUSTOM_START + 42;
+pub fn getrandom_custom(bytes: &mut [u8]) -> Result<(), Error> {
+    unsafe {
+        RNG.lock_mut(|rng_opt| {
+            let code = NonZeroU32::new(MY_CUSTOM_ERROR_CODE).unwrap();
+            let rng = rng_opt.as_mut().ok_or(Error::from(code))?;
+            rng.read(bytes);
+            Ok(())
+        })
+    }
+}
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
@@ -72,6 +93,12 @@ async fn main(spawner: Spawner) -> ! {
     let rng = Rng::new();
     let seed = (rng.random() as u64) << 32 | rng.random() as u64;
 
+    unsafe {
+        RNG.lock_mut(|rng_opt| {
+            *rng_opt = Some(rng);
+        });
+    }
+
     // Init network stack
     let (stack, runner) = embassy_net::new(
         wifi_interface,
@@ -82,9 +109,6 @@ async fn main(spawner: Spawner) -> ! {
 
     spawner.spawn(connection(controller)).ok();
     spawner.spawn(net_task(runner)).ok();
-
-    let mut rx_buffer = [0; 4096];
-    let mut tx_buffer = [0; 4096];
 
     loop {
         if stack.is_link_up() {
@@ -103,43 +127,24 @@ async fn main(spawner: Spawner) -> ! {
         Timer::after(Duration::from_millis(500)).await;
     }
 
+    let endpoint = EndPoint::try_from(CONNECT).unwrap();
+    let zconfig = zenoh_nostd::zconfig!(
+            PlatformEmbassy: (spawner, PlatformEmbassy { stack: stack}),
+            TX: 512,
+            RX: 512,
+            MAX_SUBSCRIBERS: 2
+    );
+
+    let mut session = zenoh_nostd::open!(zconfig, endpoint).unwrap();
+
+    let ke: &'static keyexpr = "demo/example".try_into().unwrap();
+    let payload = b"Hello, from esp32c3!";
+
     loop {
         Timer::after(Duration::from_millis(1_000)).await;
 
-        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+        session.put(ke, payload).await.unwrap();
 
-        socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
-
-        let remote_endpoint = (Ipv4Addr::new(142, 250, 185, 115), 80);
-        info!("connecting...");
-        let r = socket.connect(remote_endpoint).await;
-        if let Err(e) = r {
-            error!("connect error: {:?}", e);
-            continue;
-        }
-        info!("connected!");
-        let mut buf = [0; 1024];
-        loop {
-            let r = socket
-                .write(b"GET / HTTP/1.0\r\nHost: www.mobile-j.de\r\n\r\n")
-                .await;
-            if let Err(e) = r {
-                error!("write error: {:?}", e);
-                break;
-            }
-            let n = match socket.read(&mut buf).await {
-                Ok(0) => {
-                    error!("read EOF");
-                    break;
-                }
-                Ok(n) => n,
-                Err(e) => {
-                    error!("read error: {:?}", e);
-                    break;
-                }
-            };
-            error!("{}", core::str::from_utf8(&buf[..n]).unwrap());
-        }
         Timer::after(Duration::from_millis(3000)).await;
     }
 }
