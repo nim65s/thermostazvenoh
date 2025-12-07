@@ -70,6 +70,7 @@ zenoh-nostd-embassy = { git = "https://github.com/ZettaScaleLabs/zenoh-nostd" }
 spin = { version = "0.10.0", features = ["portable-atomic"] }
 getrandom = { version = "0.2.16", features = ["custom"] }
 embassy-sync = { version = "0.7.2", features = ["defmt"] }
+shtcx = "1.0.0"
 
 
 [profile.dev]

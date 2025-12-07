@@ -16,6 +16,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
+use esp_hal::i2c::master::{Config, I2c};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::{clock::CpuClock, ram, rng::Rng, timer::timg::TimerGroup};
@@ -27,6 +28,7 @@ use esp_radio::{
     },
 };
 use getrandom::{Error, register_custom_getrandom};
+use shtcx::{self, LowPower, PowerMode};
 use zenoh_nostd::{EndPoint, ZSubscriber, keyexpr, zsubscriber};
 use zenoh_nostd_embassy::PlatformEmbassy;
 
@@ -71,6 +73,17 @@ async fn main(spawner: Spawner) -> ! {
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
+
+    let i2c = I2c::new(
+        peripherals.I2C0,
+        Config::default().with_frequency(esp_hal::time::Rate::from_khz(400)),
+    )
+    .unwrap()
+    .with_sda(peripherals.GPIO10)
+    .with_scl(peripherals.GPIO8);
+    let mut sht = shtcx::shtc3(i2c);
+    let device_id = sht.device_identifier().unwrap();
+    info!("Device ID SHTC3: {:#02x}", device_id);
 
     esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 64 * 1024);
     esp_alloc::heap_allocator!(size: 36 * 1024);
@@ -153,11 +166,22 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(callback(async_sub)).unwrap();
 
     loop {
+        sht.start_wakeup().ok();
+        Timer::after(Duration::from_millis(1)).await;
+        sht.start_measurement(PowerMode::NormalMode).ok();
+        Timer::after(Duration::from_millis(13)).await;
+        let measurement = sht.get_measurement_result().unwrap();
+        sht.sleep().ok();
+        info!(
+            "TEMP: {} °C | HUM: {} %",
+            measurement.temperature.as_degrees_celsius(),
+            measurement.humidity.as_percent(),
+        );
         Timer::after(Duration::from_millis(1_000)).await;
 
         session.put(ke_pub, payload).await.unwrap();
 
-        Timer::after(Duration::from_millis(3000)).await;
+        Timer::after(Duration::from_secs(5 * 60)).await;
     }
 }
 
