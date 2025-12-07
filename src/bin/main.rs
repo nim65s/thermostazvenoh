@@ -27,7 +27,7 @@ use esp_radio::{
     },
 };
 use getrandom::{Error, register_custom_getrandom};
-use zenoh_nostd::{EndPoint, keyexpr};
+use zenoh_nostd::{EndPoint, ZSubscriber, keyexpr, zsubscriber};
 use zenoh_nostd_embassy::PlatformEmbassy;
 
 extern crate alloc;
@@ -137,15 +137,38 @@ async fn main(spawner: Spawner) -> ! {
 
     let mut session = zenoh_nostd::open!(zconfig, endpoint).unwrap();
 
-    let ke: &'static keyexpr = "demo/example".try_into().unwrap();
+    let ke_pub: &'static keyexpr = "demo/example".try_into().unwrap();
     let payload = b"Hello, from esp32c3!";
+
+    let ke_sub: &'static keyexpr = "demo/example/**".try_into().unwrap();
+
+    let async_sub = session
+        .declare_subscriber(
+            ke_sub,
+            zsubscriber!(QUEUE_SIZE: 8, MAX_KEYEXPR: 32, MAX_PAYLOAD: 128),
+        )
+        .await
+        .unwrap();
+
+    spawner.spawn(callback(async_sub)).unwrap();
 
     loop {
         Timer::after(Duration::from_millis(1_000)).await;
 
-        session.put(ke, payload).await.unwrap();
+        session.put(ke_pub, payload).await.unwrap();
 
         Timer::after(Duration::from_millis(3000)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn callback(subscriber: ZSubscriber<32, 128>) {
+    while let Ok(sample) = subscriber.recv().await {
+        info!(
+            "[Subscription Async] Received Sample ('{}': '{:?}')",
+            sample.keyexpr().as_str(),
+            core::str::from_utf8(sample.payload()).unwrap()
+        );
     }
 }
 
