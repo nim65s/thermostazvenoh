@@ -15,9 +15,11 @@ use embassy_executor::Spawner;
 use embassy_net::{Runner, StackResources};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
+use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::i2c::master::{Config, I2c};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::interrupt::software::SoftwareInterruptControl;
@@ -31,8 +33,8 @@ use esp_radio::{
 };
 use getrandom::{Error, register_custom_getrandom};
 use heapless::String;
-use zenoh_nostd::{EndPoint, ZSubscriber, keyexpr, zsubscriber};
-use zenoh_nostd_embassy::PlatformEmbassy;
+use zenoh_embassy::PlatformEmbassy;
+use zenoh_nostd::{EndPoint, Session, ZReply, ZSubscriber, keyexpr, zsubscriber};
 
 extern crate alloc;
 
@@ -56,6 +58,8 @@ const CONNECT: &str = env!("CONNECT");
 
 static RNG: Mutex<CriticalSectionRawMutex, Option<Rng>> = Mutex::new(None);
 
+static RELAY_CHANNEL: Channel<CriticalSectionRawMutex, Level, 5> = Channel::new();
+
 register_custom_getrandom!(getrandom_custom);
 const MY_CUSTOM_ERROR_CODE: u32 = Error::CUSTOM_START + 42;
 pub fn getrandom_custom(bytes: &mut [u8]) -> Result<(), Error> {
@@ -66,6 +70,80 @@ pub fn getrandom_custom(bytes: &mut [u8]) -> Result<(), Error> {
             rng.read(bytes);
             Ok(())
         })
+    }
+}
+
+fn level_from_sample(sample: &zenoh_nostd::ZSample) -> Level {
+    if sample.payload()[0] == b'1' {
+        Level::High
+    } else {
+        Level::Low
+    }
+}
+
+fn level_from_sample_owned(sample: &zenoh_nostd::ZOwnedSample<32, 128>) -> Level {
+    if sample.payload()[0] == b'1' {
+        Level::High
+    } else {
+        Level::Low
+    }
+}
+
+fn query_callback(reply: &ZReply) {
+    match reply {
+        ZReply::Ok(reply) => {
+            zenoh_nostd::info!(
+                "[Query] Received OK Reply ('{}': '{:?}')",
+                reply.keyexpr().as_str(),
+                core::str::from_utf8(reply.payload()).unwrap()
+            );
+            if let Err(e) = RELAY_CHANNEL.sender().try_send(level_from_sample(&reply)) {
+                error!("zenoh reply cant be sent to relay: {:?}", e);
+            }
+        }
+        ZReply::Err(reply) => {
+            zenoh_nostd::error!(
+                "[Query] Received ERR Reply ('{}': '{:?}')",
+                reply.keyexpr().as_str(),
+                core::str::from_utf8(reply.payload()).unwrap()
+            );
+        }
+    }
+}
+
+async fn gozenoh(
+    spawner: embassy_executor::Spawner,
+    mut aht: Aht20<I2c<'static, esp_hal::Async>, embassy_time::Delay>,
+    stack: embassy_net::Stack<'static>,
+) -> zenoh_nostd::ZResult<()> {
+    let endpoint = EndPoint::try_from(CONNECT).unwrap();
+    let zconfig = zenoh_nostd::zconfig!(
+            PlatformEmbassy: (spawner, PlatformEmbassy { stack: stack}),
+            TX: 512,
+            RX: 512,
+            MAX_SUBSCRIBERS: 2,
+            MAX_QUERIES: 2,
+            MAX_QUERYABLES: 2
+    );
+
+    let mut session = zenoh_nostd::open!(zconfig, endpoint);
+
+    let ke_sub = keyexpr::new("azv/thermostazvenoh/relay").unwrap();
+
+    let async_sub = session
+        .declare_subscriber(
+            ke_sub,
+            zsubscriber!(QUEUE_SIZE: 8, MAX_KEYEXPR: 32, MAX_PAYLOAD: 128),
+        )
+        .await
+        .unwrap();
+
+    session.get(ke_sub, query_callback).send().await.unwrap();
+    spawner.spawn(callback(async_sub)).unwrap();
+
+    loop {
+        zenoh_put(&mut aht, &mut session).await;
+        Timer::after(Duration::from_secs(30)).await;
     }
 }
 
@@ -131,30 +209,6 @@ async fn main(spawner: Spawner) -> ! {
         Timer::after(Duration::from_millis(500)).await;
     }
 
-    let endpoint = EndPoint::try_from(CONNECT).unwrap();
-    let zconfig = zenoh_nostd::zconfig!(
-            PlatformEmbassy: (spawner, PlatformEmbassy { stack: stack}),
-            TX: 512,
-            RX: 512,
-            MAX_SUBSCRIBERS: 2
-    );
-
-    let mut session = zenoh_nostd::open!(zconfig, endpoint).unwrap();
-
-    let ke_pub: &'static keyexpr = "demo/example".try_into().unwrap();
-
-    let ke_sub: &'static keyexpr = "demo/example/**".try_into().unwrap();
-
-    let async_sub = session
-        .declare_subscriber(
-            ke_sub,
-            zsubscriber!(QUEUE_SIZE: 8, MAX_KEYEXPR: 32, MAX_PAYLOAD: 128),
-        )
-        .await
-        .unwrap();
-
-    spawner.spawn(callback(async_sub)).unwrap();
-
     info!("configure AHT20");
     let i2c = I2c::new(
         peripherals.I2C0,
@@ -163,48 +217,73 @@ async fn main(spawner: Spawner) -> ! {
     .unwrap()
     .with_sda(peripherals.GPIO10)
     .with_scl(peripherals.GPIO8);
-    let mut aht = Aht20::new(i2c.into_async(), embassy_time::Delay)
+    let aht = Aht20::new(i2c.into_async(), embassy_time::Delay)
         .await
         .expect("failed to init aht");
 
-    let mut msg: String<64> = String::new();
+    info!("configure relay");
+    let relay = Output::new(peripherals.GPIO1, Level::Low, OutputConfig::default());
+    spawner.spawn(relay_task(relay)).ok();
 
-    loop {
-        info!("Read H T");
-
-        let Ok((humidity, temperature)) = aht.read().await else {
-            error!("aht: fail to read");
-            continue;
-        };
-        let Ok(_) = write!(
-            msg,
-            "{{\"AHT20\":{{\"Temperature\": {:.2}, \"Humidity\": {:.2}}}}}",
-            temperature.celsius(),
-            humidity.rh()
-        ) else {
-            error!("write! measurement failed!");
-            continue;
-        };
-
-        info!("data: {}", msg);
-
-        session
-            .put(ke_pub, &msg.clone().into_bytes())
-            .await
-            .unwrap();
-
-        Timer::after(Duration::from_secs(5 * 60)).await;
+    if let Err(e) = gozenoh(spawner, aht, stack).await {
+        error!("Error in gozenoh: {:?}", e);
     }
+    loop {}
+}
+
+async fn zenoh_put<'a>(
+    aht: &mut Aht20<I2c<'a, esp_hal::Async>, embassy_time::Delay>,
+    session: &mut Session<PlatformEmbassy>,
+) {
+    let mut msg: String<64> = String::new();
+    let ke_pub = keyexpr::new("tele/thermostazvenoh").unwrap();
+
+    info!("Read H T");
+
+    let Ok((humidity, temperature)) = aht.read().await else {
+        error!("aht: fail to read");
+        return;
+    };
+    let Ok(_) = write!(
+        msg,
+        "{{\"AHT20\":{{\"Temperature\": {:.2}, \"Humidity\": {:.2}}}}}",
+        temperature.celsius(),
+        humidity.rh()
+    ) else {
+        error!("write! measurement failed!");
+        return;
+    };
+
+    info!("data: {}", msg);
+
+    let Ok(_) = session.put(ke_pub, &msg.clone().into_bytes()).await else {
+        error!("cant put");
+        return;
+    };
 }
 
 #[embassy_executor::task]
 async fn callback(subscriber: ZSubscriber<32, 128>) {
-    while let Ok(sample) = subscriber.recv().await {
-        info!(
-            "[Subscription Async] Received Sample ('{}': '{:?}')",
-            sample.keyexpr().as_str(),
-            core::str::from_utf8(sample.payload()).unwrap()
-        );
+    loop {
+        match subscriber.recv().await {
+            Ok(sample) => {
+                RELAY_CHANNEL
+                    .sender()
+                    .send(level_from_sample_owned(&sample))
+                    .await
+            }
+            Err(e) => error!("Invalid sample: {:?}", e),
+        }
+    }
+}
+
+#[embassy_executor::task]
+async fn relay_task(mut relay: Output<'static>) {
+    let receiver = RELAY_CHANNEL.receiver();
+    loop {
+        let level = receiver.receive().await;
+        info!("relay {}", level);
+        relay.set_level(level);
     }
 }
 
