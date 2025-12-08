@@ -6,8 +6,10 @@
     holding buffers for the duration of a data transfer."
 )]
 
+use core::fmt::Write;
 use core::num::NonZeroU32;
 
+use aht20_async::Aht20;
 use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_net::{Runner, StackResources};
@@ -28,7 +30,7 @@ use esp_radio::{
     },
 };
 use getrandom::{Error, register_custom_getrandom};
-use shtcx::{self, LowPower, PowerMode};
+use heapless::String;
 use zenoh_nostd::{EndPoint, ZSubscriber, keyexpr, zsubscriber};
 use zenoh_nostd_embassy::PlatformEmbassy;
 
@@ -73,17 +75,6 @@ async fn main(spawner: Spawner) -> ! {
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
-
-    let i2c = I2c::new(
-        peripherals.I2C0,
-        Config::default().with_frequency(esp_hal::time::Rate::from_khz(400)),
-    )
-    .unwrap()
-    .with_sda(peripherals.GPIO10)
-    .with_scl(peripherals.GPIO8);
-    let mut sht = shtcx::shtc3(i2c);
-    let device_id = sht.device_identifier().unwrap();
-    info!("Device ID SHTC3: {:#02x}", device_id);
 
     esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 64 * 1024);
     esp_alloc::heap_allocator!(size: 36 * 1024);
@@ -151,7 +142,6 @@ async fn main(spawner: Spawner) -> ! {
     let mut session = zenoh_nostd::open!(zconfig, endpoint).unwrap();
 
     let ke_pub: &'static keyexpr = "demo/example".try_into().unwrap();
-    let payload = b"Hello, from esp32c3!";
 
     let ke_sub: &'static keyexpr = "demo/example/**".try_into().unwrap();
 
@@ -165,21 +155,43 @@ async fn main(spawner: Spawner) -> ! {
 
     spawner.spawn(callback(async_sub)).unwrap();
 
-    loop {
-        sht.start_wakeup().ok();
-        Timer::after(Duration::from_millis(1)).await;
-        sht.start_measurement(PowerMode::NormalMode).ok();
-        Timer::after(Duration::from_millis(13)).await;
-        let measurement = sht.get_measurement_result().unwrap();
-        sht.sleep().ok();
-        info!(
-            "TEMP: {} °C | HUM: {} %",
-            measurement.temperature.as_degrees_celsius(),
-            measurement.humidity.as_percent(),
-        );
-        Timer::after(Duration::from_millis(1_000)).await;
+    info!("configure AHT20");
+    let i2c = I2c::new(
+        peripherals.I2C0,
+        Config::default().with_frequency(esp_hal::time::Rate::from_khz(400)),
+    )
+    .unwrap()
+    .with_sda(peripherals.GPIO10)
+    .with_scl(peripherals.GPIO8);
+    let mut aht = Aht20::new(i2c.into_async(), embassy_time::Delay)
+        .await
+        .expect("failed to init aht");
 
-        session.put(ke_pub, payload).await.unwrap();
+    let mut msg: String<64> = String::new();
+
+    loop {
+        info!("Read H T");
+
+        let Ok((humidity, temperature)) = aht.read().await else {
+            error!("aht: fail to read");
+            continue;
+        };
+        let Ok(_) = write!(
+            msg,
+            "{{\"AHT20\":{{\"Temperature\": {:.2}, \"Humidity\": {:.2}}}}}",
+            temperature.celsius(),
+            humidity.rh()
+        ) else {
+            error!("write! measurement failed!");
+            continue;
+        };
+
+        info!("data: {}", msg);
+
+        session
+            .put(ke_pub, &msg.clone().into_bytes())
+            .await
+            .unwrap();
 
         Timer::after(Duration::from_secs(5 * 60)).await;
     }

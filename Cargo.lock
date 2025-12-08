@@ -3,6 +3,17 @@
 version = 4
 
 [[package]]
+name = "aht20-async"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c93801d1c9009ecef32e156413ef8f318478d1e7c7e38dc96654f412cf37827"
+dependencies = [
+ "bitflags 2.10.0",
+ "crc_all",
+ "embedded-hal-async",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -143,6 +154,12 @@ checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "crc_all"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c46c1a17ebeef917714db3ae9a17bd2184f7e9977d8e020c6c8bcf59a28a6f1b"
 
 [[package]]
 name = "critical-section"
@@ -1505,15 +1522,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shtcx"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c25d66e6c78c6e19160a5b528cebe6f54d5737f091a2b90b08dbd7e63a9269f"
-dependencies = [
- "embedded-hal 1.0.0",
-]
-
-[[package]]
 name = "smoltcp"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1642,6 +1650,7 @@ dependencies = [
 name = "thermostazvenoh"
 version = "0.1.0"
 dependencies = [
+ "aht20-async",
  "critical-section",
  "defmt 1.0.1",
  "embassy-executor",
@@ -1658,7 +1667,7 @@ dependencies = [
  "esp-radio",
  "esp-rtos",
  "getrandom",
- "shtcx",
+ "heapless 0.9.2",
  "smoltcp",
  "spin",
  "static_cell",
