@@ -143,7 +143,7 @@ async fn gozenoh(
 
     loop {
         zenoh_put(&mut aht, &mut session).await;
-        Timer::after(Duration::from_secs(30)).await;
+        Timer::after(Duration::from_secs(6 * 50)).await;
     }
 }
 
@@ -228,7 +228,8 @@ async fn main(spawner: Spawner) -> ! {
     if let Err(e) = gozenoh(spawner, aht, stack).await {
         error!("Error in gozenoh: {:?}", e);
     }
-    loop {}
+    Timer::after(Duration::from_secs(3)).await;
+    esp_hal::system::software_reset()
 }
 
 async fn zenoh_put<'a>(
