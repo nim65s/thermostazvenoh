@@ -74,7 +74,8 @@ pub fn getrandom_custom(bytes: &mut [u8]) -> Result<(), Error> {
 }
 
 fn level_from_sample(sample: &zenoh_nostd::ZSample) -> Level {
-    if sample.payload()[0] == b'1' {
+    // TODO: handle ON / OFF / TOGGLE
+    if sample.payload()[1] == b'N' {
         Level::High
     } else {
         Level::Low
@@ -128,7 +129,7 @@ async fn gozenoh(
 
     let mut session = zenoh_nostd::open!(zconfig, endpoint);
 
-    let ke_sub = keyexpr::new("tele/thermostazvenoh/relay").unwrap();
+    let ke_sub = keyexpr::new("cmnd/thermostazvenoh/POWER").unwrap();
 
     let async_sub = session
         .declare_subscriber(
