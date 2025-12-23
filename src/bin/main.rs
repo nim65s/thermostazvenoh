@@ -83,7 +83,8 @@ fn level_from_sample(sample: &zenoh_nostd::ZSample) -> Level {
 }
 
 fn level_from_sample_owned(sample: &zenoh_nostd::ZOwnedSample<32, 128>) -> Level {
-    if sample.payload()[0] == b'1' {
+    // TODO: handle ON / OFF / TOGGLE
+    if sample.payload()[1] == b'N' {
         Level::High
     } else {
         Level::Low
