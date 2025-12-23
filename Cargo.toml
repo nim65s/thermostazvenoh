@@ -65,8 +65,8 @@ smoltcp = { version = "0.12.0", default-features = false, features = [
 
 critical-section = "1.2.0"
 static_cell      = { version = "2.1.1", features = ["nightly"] }
-zenoh-nostd = { git = "https://github.com/ZettaScaleLabs/zenoh-nostd", features = ["defmt"], branch="develop" }
-zenoh-embassy = { git = "https://github.com/ZettaScaleLabs/zenoh-nostd", branch="develop" }
+zenoh-nostd = { git = "https://github.com/ZettaScaleLabs/zenoh-nostd", features = ["defmt"] }
+zenoh-embassy = { git = "https://github.com/ZettaScaleLabs/zenoh-nostd" }
 spin = { version = "0.10.0", features = ["portable-atomic"] }
 getrandom = { version = "0.2.16", features = ["custom"] }
 embassy-sync = { version = "0.7.2", features = ["defmt"] }
