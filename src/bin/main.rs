@@ -128,7 +128,7 @@ async fn gozenoh(
 
     let mut session = zenoh_nostd::open!(zconfig, endpoint);
 
-    let ke_sub = keyexpr::new("azv/thermostazvenoh/relay").unwrap();
+    let ke_sub = keyexpr::new("tele/thermostazvenoh/relay").unwrap();
 
     let async_sub = session
         .declare_subscriber(
@@ -237,7 +237,7 @@ async fn zenoh_put<'a>(
     session: &mut Session<PlatformEmbassy>,
 ) {
     let mut msg: String<64> = String::new();
-    let ke_pub = keyexpr::new("tele/thermostazvenoh").unwrap();
+    let ke_pub = keyexpr::new("tele/thermostazvenoh/SENSOR").unwrap();
 
     info!("Read H T");
 
