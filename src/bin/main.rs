@@ -16,7 +16,6 @@ use embassy_executor::Spawner;
 use embassy_net::{Runner, StackResources};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
@@ -35,9 +34,11 @@ use esp_radio::{
 use getrandom::register_custom_getrandom;
 use heapless::String;
 use zenoh_embassy::PlatformEmbassy;
-use zenoh_nostd::{EndPoint, Session, ZReply, ZSubscriber, keyexpr, zsubscriber};
+use zenoh_nostd::{EndPoint, Session, keyexpr, zsubscriber};
 
 extern crate alloc;
+
+use thermostazvenoh::relay::{relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -56,7 +57,6 @@ macro_rules! mk_static {
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
 const CONNECT: &str = env!("CONNECT");
-
 static RNG: Mutex<CriticalSectionRawMutex, Option<Rng>> = Mutex::new(None);
 
 register_custom_getrandom!(getrandom_custom);
@@ -69,59 +69,6 @@ pub fn getrandom_custom(bytes: &mut [u8]) -> Result<(), getrandom::Error> {
             rng.read(bytes);
             Ok(())
         })
-    }
-}
-
-static RELAY_CMND: Channel<CriticalSectionRawMutex, RelayCmnd, 5> = Channel::new();
-
-#[derive(defmt::Format)]
-enum RelayCmnd {
-    On,
-    Off,
-    Toggle,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum RelayCmndError<'a> {
-    #[error("invalid payload received as relay command: {0:?}")]
-    InvalidPayload(&'a [u8]),
-}
-
-impl<'a> TryFrom<&'a [u8]> for RelayCmnd {
-    type Error = RelayCmndError<'a>;
-
-    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
-        match value {
-            b"ON" => Ok(Self::On),
-            b"OFF" => Ok(Self::Off),
-            b"TOGGLE" => Ok(Self::Toggle),
-            _ => Err(Self::Error::InvalidPayload(value)),
-        }
-    }
-}
-
-fn query_callback(reply: &ZReply) {
-    match reply {
-        ZReply::Ok(reply) => {
-            zenoh_nostd::info!(
-                "[Query] Received OK Reply ('{}': '{:?}')",
-                reply.keyexpr().as_str(),
-                core::str::from_utf8(reply.payload()).unwrap()
-            );
-            if let Err(e) = RELAY_CMND
-                .sender()
-                .try_send(reply.payload().try_into().unwrap())
-            {
-                error!("zenoh reply cant be sent to relay: {:?}", e);
-            }
-        }
-        ZReply::Err(reply) => {
-            zenoh_nostd::error!(
-                "[Query] Received ERR Reply ('{}': '{:?}')",
-                reply.keyexpr().as_str(),
-                core::str::from_utf8(reply.payload()).unwrap()
-            );
-        }
     }
 }
 
@@ -142,18 +89,20 @@ async fn gozenoh(
 
     let mut session = zenoh_nostd::open!(zconfig, endpoint);
 
-    let ke_sub = keyexpr::new("cmnd/thermostazvenoh/POWER").unwrap();
-
+    let ke_relay_cmnd_sub = keyexpr::new("cmnd/thermostazvenoh/POWER").unwrap();
     let async_sub = session
         .declare_subscriber(
-            ke_sub,
+            ke_relay_cmnd_sub,
             zsubscriber!(QUEUE_SIZE: 8, MAX_KEYEXPR: 32, MAX_PAYLOAD: 128),
         )
         .await
         .unwrap();
-
-    session.get(ke_sub, query_callback).send().await.unwrap();
-    spawner.spawn(callback(async_sub)).unwrap();
+    session
+        .get(ke_relay_cmnd_sub, relay_cmnd_callback)
+        .send()
+        .await
+        .unwrap();
+    spawner.spawn(relay_cmnd_sub_task(async_sub)).unwrap();
 
     loop {
         zenoh_put(&mut aht, &mut session).await;
@@ -275,36 +224,6 @@ async fn zenoh_put<'a>(
         error!("cant put");
         return;
     };
-}
-
-#[embassy_executor::task]
-async fn callback(subscriber: ZSubscriber<32, 128>) {
-    loop {
-        match subscriber.recv().await {
-            Ok(sample) => {
-                RELAY_CMND
-                    .sender()
-                    .send(sample.payload().try_into().unwrap())
-                    .await
-            }
-            Err(e) => error!("Invalid sample: {:?}", e),
-        }
-    }
-}
-
-#[embassy_executor::task]
-async fn relay_task(mut relay: Output<'static>) {
-    let mut level = Level::Low;
-    let receiver = RELAY_CMND.receiver();
-    loop {
-        level = match receiver.receive().await {
-            RelayCmnd::On => Level::High,
-            RelayCmnd::Off => Level::Low,
-            RelayCmnd::Toggle => !level,
-        };
-        info!("relay {}", level);
-        relay.set_level(level);
-    }
 }
 
 #[embassy_executor::task]
