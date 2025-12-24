@@ -12,6 +12,7 @@ use core::num::NonZeroU32;
 use aht20_async::Aht20;
 use defmt::{error, info};
 use embassy_executor::Spawner;
+// use embassy_futures::select;
 use embassy_net::{Runner, StackResources};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -31,7 +32,7 @@ use esp_radio::{
         ClientConfig, ModeConfig, ScanConfig, WifiController, WifiDevice, WifiEvent, WifiStaState,
     },
 };
-use getrandom::{Error, register_custom_getrandom};
+use getrandom::register_custom_getrandom;
 use heapless::String;
 use zenoh_embassy::PlatformEmbassy;
 use zenoh_nostd::{EndPoint, Session, ZReply, ZSubscriber, keyexpr, zsubscriber};
@@ -58,36 +59,44 @@ const CONNECT: &str = env!("CONNECT");
 
 static RNG: Mutex<CriticalSectionRawMutex, Option<Rng>> = Mutex::new(None);
 
-static RELAY_CHANNEL: Channel<CriticalSectionRawMutex, Level, 5> = Channel::new();
-
 register_custom_getrandom!(getrandom_custom);
-const MY_CUSTOM_ERROR_CODE: u32 = Error::CUSTOM_START + 42;
-pub fn getrandom_custom(bytes: &mut [u8]) -> Result<(), Error> {
+const MY_CUSTOM_ERROR_CODE: u32 = getrandom::Error::CUSTOM_START + 42;
+pub fn getrandom_custom(bytes: &mut [u8]) -> Result<(), getrandom::Error> {
     unsafe {
         RNG.lock_mut(|rng_opt| {
             let code = NonZeroU32::new(MY_CUSTOM_ERROR_CODE).unwrap();
-            let rng = rng_opt.as_mut().ok_or(Error::from(code))?;
+            let rng = rng_opt.as_mut().ok_or(getrandom::Error::from(code))?;
             rng.read(bytes);
             Ok(())
         })
     }
 }
 
-fn level_from_sample(sample: &zenoh_nostd::ZSample) -> Level {
-    // TODO: handle ON / OFF / TOGGLE
-    if sample.payload()[1] == b'N' {
-        Level::High
-    } else {
-        Level::Low
-    }
+static RELAY_CMND: Channel<CriticalSectionRawMutex, RelayCmnd, 5> = Channel::new();
+
+#[derive(defmt::Format)]
+enum RelayCmnd {
+    On,
+    Off,
+    Toggle,
 }
 
-fn level_from_sample_owned(sample: &zenoh_nostd::ZOwnedSample<32, 128>) -> Level {
-    // TODO: handle ON / OFF / TOGGLE
-    if sample.payload()[1] == b'N' {
-        Level::High
-    } else {
-        Level::Low
+#[derive(Debug, thiserror::Error)]
+pub enum RelayCmndError<'a> {
+    #[error("invalid payload received as relay command: {0:?}")]
+    InvalidPayload(&'a [u8]),
+}
+
+impl<'a> TryFrom<&'a [u8]> for RelayCmnd {
+    type Error = RelayCmndError<'a>;
+
+    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+        match value {
+            b"ON" => Ok(Self::On),
+            b"OFF" => Ok(Self::Off),
+            b"TOGGLE" => Ok(Self::Toggle),
+            _ => Err(Self::Error::InvalidPayload(value)),
+        }
     }
 }
 
@@ -99,7 +108,10 @@ fn query_callback(reply: &ZReply) {
                 reply.keyexpr().as_str(),
                 core::str::from_utf8(reply.payload()).unwrap()
             );
-            if let Err(e) = RELAY_CHANNEL.sender().try_send(level_from_sample(&reply)) {
+            if let Err(e) = RELAY_CMND
+                .sender()
+                .try_send(reply.payload().try_into().unwrap())
+            {
                 error!("zenoh reply cant be sent to relay: {:?}", e);
             }
         }
@@ -270,9 +282,9 @@ async fn callback(subscriber: ZSubscriber<32, 128>) {
     loop {
         match subscriber.recv().await {
             Ok(sample) => {
-                RELAY_CHANNEL
+                RELAY_CMND
                     .sender()
-                    .send(level_from_sample_owned(&sample))
+                    .send(sample.payload().try_into().unwrap())
                     .await
             }
             Err(e) => error!("Invalid sample: {:?}", e),
@@ -282,9 +294,14 @@ async fn callback(subscriber: ZSubscriber<32, 128>) {
 
 #[embassy_executor::task]
 async fn relay_task(mut relay: Output<'static>) {
-    let receiver = RELAY_CHANNEL.receiver();
+    let mut level = Level::Low;
+    let receiver = RELAY_CMND.receiver();
     loop {
-        let level = receiver.receive().await;
+        level = match receiver.receive().await {
+            RelayCmnd::On => Level::High,
+            RelayCmnd::Off => Level::Low,
+            RelayCmnd::Toggle => !level,
+        };
         info!("relay {}", level);
         relay.set_level(level);
     }
