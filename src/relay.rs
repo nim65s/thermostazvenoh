@@ -1,11 +1,12 @@
 use crate::error::Error;
 use defmt::{Format, error, info};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
+use embassy_sync::{channel::Channel, signal::Signal};
 use esp_hal::gpio::{Level, Output};
 use zenoh_nostd::ZReply;
 
 static RELAY_CMND: Channel<CriticalSectionRawMutex, RelayCmnd, 5> = Channel::new();
+pub static RELAY_LEVEL: Signal<CriticalSectionRawMutex, Level> = Signal::new();
 
 #[derive(Debug, Format)]
 pub enum RelayCmnd {
@@ -68,6 +69,7 @@ fn handle_reply<'a>(reply: &ZReply<'a>) -> Result<(), Error<'a>> {
 #[embassy_executor::task]
 pub async fn relay_task(mut relay: Output<'static>) {
     let mut level = Level::Low;
+    RELAY_LEVEL.signal(level);
     let receiver = RELAY_CMND.receiver();
     loop {
         level = match receiver.receive().await {
@@ -76,6 +78,7 @@ pub async fn relay_task(mut relay: Output<'static>) {
             RelayCmnd::Toggle => !level,
         };
         info!("relay {}", level);
+        RELAY_LEVEL.signal(level);
         relay.set_level(level);
     }
 }

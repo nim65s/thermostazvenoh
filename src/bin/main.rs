@@ -38,7 +38,7 @@ use zenoh_nostd::{EndPoint, Session, keyexpr, zsubscriber};
 
 extern crate alloc;
 
-use thermostazvenoh::relay::{relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
+use thermostazvenoh::relay::{RELAY_LEVEL, relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -89,7 +89,7 @@ async fn gozenoh(
 
     let mut session = zenoh_nostd::open!(zconfig, endpoint);
 
-    let ke_relay_cmnd_sub = keyexpr::new("cmnd/thermostazvenoh/POWER").unwrap();
+    let ke_relay_cmnd_sub = keyexpr::new("cmnd/thermostazvenoh/RELAY").unwrap();
     let async_sub = session
         .declare_subscriber(
             ke_relay_cmnd_sub,
@@ -208,11 +208,13 @@ async fn zenoh_put<'a>(
         error!("aht: fail to read");
         return;
     };
+    let level = RELAY_LEVEL.wait().await;
     let Ok(_) = write!(
         msg,
-        "{{\"AHT20\":{{\"Temperature\": {:.2}, \"Humidity\": {:.2}}}}}",
+        "{{\"AHT20\":{{\"Temperature\": {:.2}, \"Humidity\": {:.2}}}, \"RELAY\": {:?}}}",
         temperature.celsius(),
-        humidity.rh()
+        humidity.rh(),
+        level,
     ) else {
         error!("write! measurement failed!");
         return;
