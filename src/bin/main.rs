@@ -23,7 +23,7 @@ use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::i2c::master::{Config, I2c};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::interrupt::software::SoftwareInterruptControl;
-use esp_hal::{clock::CpuClock, ram, rng::Rng, timer::timg::TimerGroup};
+use esp_hal::{clock::CpuClock, peripherals::Peripherals, ram, rng::Rng, timer::timg::TimerGroup};
 use esp_println as _;
 use esp_radio::{
     Controller,
@@ -38,6 +38,7 @@ use zenoh_nostd::{EndPoint, Session, keyexpr, zsubscriber};
 
 extern crate alloc;
 
+use thermostazvenoh::error::Error;
 use thermostazvenoh::relay::{RELAY_LEVEL, relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
@@ -120,6 +121,15 @@ async fn main(spawner: Spawner) -> ! {
     esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 64 * 1024);
     esp_alloc::heap_allocator!(size: 36 * 1024);
 
+    if let Err(e) = real_main(peripherals, spawner).await {
+        error!("main error: {:?}", e);
+    }
+
+    Timer::after(Duration::from_secs(5)).await;
+    esp_hal::system::software_reset()
+}
+
+async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(), Error<'a>> {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
@@ -191,8 +201,8 @@ async fn main(spawner: Spawner) -> ! {
     if let Err(e) = gozenoh(spawner, aht, stack).await {
         error!("Error in gozenoh: {:?}", e);
     }
-    Timer::after(Duration::from_secs(3)).await;
-    esp_hal::system::software_reset()
+
+    Ok(())
 }
 
 async fn zenoh_put<'a>(
