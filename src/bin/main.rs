@@ -13,7 +13,7 @@ use aht20_async::Aht20;
 use defmt::{error, info};
 use embassy_executor::Spawner;
 // use embassy_futures::select;
-use embassy_net::{Runner, StackResources};
+use embassy_net::StackResources;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::{Duration, Timer};
@@ -25,12 +25,7 @@ use esp_hal::i2c::master::{Config, I2c};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::{clock::CpuClock, peripherals::Peripherals, ram, rng::Rng, timer::timg::TimerGroup};
 use esp_println as _;
-use esp_radio::{
-    Controller,
-    wifi::{
-        ClientConfig, ModeConfig, ScanConfig, WifiController, WifiDevice, WifiEvent, WifiStaState,
-    },
-};
+use esp_radio::Controller;
 use getrandom::register_custom_getrandom;
 use heapless::String;
 use zenoh_embassy::PlatformEmbassy;
@@ -39,6 +34,7 @@ use zenoh_nostd::{EndPoint, Session, keyexpr, zsubscriber};
 extern crate alloc;
 
 use thermostazvenoh::error::Error;
+use thermostazvenoh::network::{connection, net_task};
 use thermostazvenoh::relay::{RELAY_LEVEL, relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
@@ -55,9 +51,7 @@ macro_rules! mk_static {
     }};
 }
 
-const SSID: &str = env!("SSID");
-const PASSWORD: &str = env!("PASSWORD");
-const CONNECT: &str = env!("CONNECT");
+const CONNECT: Option<&str> = option_env!("CONNECT");
 static RNG: Mutex<CriticalSectionRawMutex, Option<Rng>> = Mutex::new(None);
 
 register_custom_getrandom!(getrandom_custom);
@@ -73,44 +67,6 @@ pub fn getrandom_custom(bytes: &mut [u8]) -> Result<(), getrandom::Error> {
     }
 }
 
-async fn gozenoh(
-    spawner: embassy_executor::Spawner,
-    mut aht: Aht20<I2c<'static, esp_hal::Async>, embassy_time::Delay>,
-    stack: embassy_net::Stack<'static>,
-) -> zenoh_nostd::ZResult<()> {
-    let endpoint = EndPoint::try_from(CONNECT).unwrap();
-    let zconfig = zenoh_nostd::zconfig!(
-            PlatformEmbassy: (spawner, PlatformEmbassy { stack: stack}),
-            TX: 512,
-            RX: 512,
-            MAX_SUBSCRIBERS: 2,
-            MAX_QUERIES: 2,
-            MAX_QUERYABLES: 2
-    );
-
-    let mut session = zenoh_nostd::open!(zconfig, endpoint);
-
-    let ke_relay_cmnd_sub = keyexpr::new("cmnd/thermostazvenoh/RELAY").unwrap();
-    let async_sub = session
-        .declare_subscriber(
-            ke_relay_cmnd_sub,
-            zsubscriber!(QUEUE_SIZE: 8, MAX_KEYEXPR: 32, MAX_PAYLOAD: 128),
-        )
-        .await
-        .unwrap();
-    session
-        .get(ke_relay_cmnd_sub, relay_cmnd_callback)
-        .send()
-        .await
-        .unwrap();
-    spawner.spawn(relay_cmnd_sub_task(async_sub)).unwrap();
-
-    loop {
-        zenoh_put(&mut aht, &mut session).await;
-        Timer::after(Duration::from_secs(6 * 50)).await;
-    }
-}
-
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
     // generator version: 1.0.1
@@ -122,7 +78,7 @@ async fn main(spawner: Spawner) -> ! {
     esp_alloc::heap_allocator!(size: 36 * 1024);
 
     if let Err(e) = real_main(peripherals, spawner).await {
-        error!("main error: {:?}", e);
+        error!("init error: {:?}", e);
     }
 
     Timer::after(Duration::from_secs(5)).await;
@@ -136,10 +92,11 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
 
     info!("Embassy initialized!");
 
-    let esp_radio_ctrl = &*mk_static!(Controller<'static>, esp_radio::init().unwrap());
+    info!("configure radio");
+    let esp_radio_ctrl = &*mk_static!(Controller<'static>, esp_radio::init()?);
 
     let (controller, interfaces) =
-        esp_radio::wifi::new(&esp_radio_ctrl, peripherals.WIFI, Default::default()).unwrap();
+        esp_radio::wifi::new(&esp_radio_ctrl, peripherals.WIFI, Default::default())?;
 
     let wifi_interface = interfaces.sta;
 
@@ -154,7 +111,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
         });
     }
 
-    // Init network stack
+    info!("configure network stack");
     let (stack, runner) = embassy_net::new(
         wifi_interface,
         config,
@@ -165,6 +122,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     spawner.spawn(connection(controller)).ok();
     spawner.spawn(net_task(runner)).ok();
 
+    info!("Waiting for link...");
     loop {
         if stack.is_link_up() {
             info!("link up!");
@@ -190,7 +148,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     .unwrap()
     .with_sda(peripherals.GPIO10)
     .with_scl(peripherals.GPIO8);
-    let aht = Aht20::new(i2c.into_async(), embassy_time::Delay)
+    let mut aht = Aht20::new(i2c.into_async(), embassy_time::Delay)
         .await
         .expect("failed to init aht");
 
@@ -198,93 +156,64 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     let relay = Output::new(peripherals.GPIO1, Level::Low, OutputConfig::default());
     spawner.spawn(relay_task(relay)).ok();
 
-    if let Err(e) = gozenoh(spawner, aht, stack).await {
-        error!("Error in gozenoh: {:?}", e);
-    }
+    info!("configure zenoh");
+    let endpoint = EndPoint::try_from(CONNECT.unwrap_or("tcp/10.74.47.1:7447"))?;
+    let zconfig = zenoh_nostd::zconfig!(
+            PlatformEmbassy: (spawner, PlatformEmbassy { stack: stack}),
+            TX: 512,
+            RX: 512,
+            MAX_SUBSCRIBERS: 2,
+            MAX_QUERIES: 2,
+            MAX_QUERYABLES: 2
+    );
 
-    Ok(())
+    let mut session = zenoh_nostd::open!(zconfig, endpoint);
+
+    let ke_relay_cmnd_sub = keyexpr::new("cmnd/thermostazvenoh/RELAY")?;
+    let async_sub = session
+        .declare_subscriber(
+            ke_relay_cmnd_sub,
+            zsubscriber!(QUEUE_SIZE: 8, MAX_KEYEXPR: 32, MAX_PAYLOAD: 128),
+        )
+        .await?;
+    session
+        .get(ke_relay_cmnd_sub, relay_cmnd_callback)
+        .send()
+        .await?;
+    spawner.spawn(relay_cmnd_sub_task(async_sub)).ok();
+
+    info!("initialization done, starting main loop");
+    loop {
+        if let Err(e) = main_loop(&mut aht, &mut session).await {
+            error!("main loop error: {:?}", e);
+        }
+        Timer::after(Duration::from_secs(6 * 50)).await;
+    }
 }
 
-async fn zenoh_put<'a>(
+async fn main_loop<'a>(
     aht: &mut Aht20<I2c<'a, esp_hal::Async>, embassy_time::Delay>,
     session: &mut Session<PlatformEmbassy>,
-) {
+) -> Result<(), Error<'a>> {
     let mut msg: String<64> = String::new();
-    let ke_pub = keyexpr::new("tele/thermostazvenoh/SENSOR").unwrap();
+    let ke_pub = keyexpr::new("tele/thermostazvenoh/SENSOR")?;
 
     info!("Read H T");
 
-    let Ok((humidity, temperature)) = aht.read().await else {
-        error!("aht: fail to read");
-        return;
-    };
+    let (humidity, temperature) = aht.read().await.map_err(|_| Error::AHT20)?;
     let level = RELAY_LEVEL.wait().await;
-    let Ok(_) = write!(
+    write!(
         msg,
         "{{\"AHT20\":{{\"Temperature\": {:.2}, \"Humidity\": {:.2}}}, \"RELAY\": {:?}}}",
         temperature.celsius(),
         humidity.rh(),
         level,
-    ) else {
-        error!("write! measurement failed!");
-        return;
-    };
+    )
+    .map_err(|_| Error::Write)?;
 
     info!("data: {}", msg);
 
-    let Ok(_) = session.put(ke_pub, &msg.clone().into_bytes()).await else {
-        error!("cant put");
-        return;
-    };
-}
+    session.put(ke_pub, &msg.clone().into_bytes()).await?;
 
-#[embassy_executor::task]
-async fn connection(mut controller: WifiController<'static>) {
-    info!("start connection task");
-    info!("Device capabilities: {:?}", controller.capabilities());
-    loop {
-        match esp_radio::wifi::sta_state() {
-            WifiStaState::Connected => {
-                // wait until we're no longer connected
-                controller.wait_for_event(WifiEvent::StaDisconnected).await;
-                Timer::after(Duration::from_millis(5000)).await
-            }
-            _ => {}
-        }
-        if !matches!(controller.is_started(), Ok(true)) {
-            let client_config = ModeConfig::Client(
-                ClientConfig::default()
-                    .with_ssid(SSID.into())
-                    .with_password(PASSWORD.into()),
-            );
-            controller.set_config(&client_config).unwrap();
-            info!("Starting wifi");
-            controller.start_async().await.unwrap();
-            info!("Wifi started!");
-
-            info!("Scan");
-            let scan_config = ScanConfig::default().with_max(10);
-            let result = controller
-                .scan_with_config_async(scan_config)
-                .await
-                .unwrap();
-            for ap in result {
-                info!("{:?}", ap);
-            }
-        }
-        info!("About to connect...");
-
-        match controller.connect_async().await {
-            Ok(_) => info!("Wifi connected!"),
-            Err(e) => {
-                error!("Failed to connect to wifi: {:?}", e);
-                Timer::after(Duration::from_millis(5000)).await
-            }
-        }
-    }
-}
-
-#[embassy_executor::task]
-async fn net_task(mut runner: Runner<'static, WifiDevice<'static>>) {
-    runner.run().await
+    Ok(())
 }
