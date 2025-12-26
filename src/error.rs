@@ -31,6 +31,9 @@ pub enum Error<'a> {
 
     #[error("core::fmt::Write error")]
     Write,
+
+    #[error("string capacity error: {0:?}")]
+    Capacity(heapless::CapacityError),
 }
 
 impl<'a> From<RelayCmndError<'a>> for Error<'a> {
@@ -80,3 +83,9 @@ impl From<zenoh_nostd::ZKeyExprError> for Error<'_> {
 //         Error::AHT20(e)
 //     }
 // }
+
+impl From<heapless::CapacityError> for Error<'_> {
+    fn from(e: heapless::CapacityError) -> Self {
+        Error::Capacity(e)
+    }
+}

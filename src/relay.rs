@@ -1,12 +1,13 @@
 use crate::error::Error;
 use defmt::{Format, error, info};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::{channel::Channel, signal::Signal};
+use embassy_sync::channel::Channel;
 use esp_hal::gpio::{Level, Output};
 use zenoh_nostd::ZReply;
 
+use crate::RELAY_LEVEL;
+
 static RELAY_CMND: Channel<CriticalSectionRawMutex, RelayCmnd, 5> = Channel::new();
-pub static RELAY_LEVEL: Signal<CriticalSectionRawMutex, Level> = Signal::new();
 
 #[derive(Debug, Format)]
 pub enum RelayCmnd {

@@ -5,10 +5,13 @@
     reason = "mem::forget is generally not safe to do with esp_hal types, especially those \
     holding buffers for the duration of a data transfer."
 )]
+#[cfg(all(feature = "aht20", feature = "shtc3"))]
+compile_error!("feature \"aht20\" and feature \"shtc3\" cannot be enabled at the same time");
 
 use core::fmt::Write;
 use core::num::NonZeroU32;
 
+#[cfg(feature = "aht20")]
 use aht20_async::Aht20;
 use defmt::{error, info};
 use embassy_executor::Spawner;
@@ -33,9 +36,12 @@ use zenoh_nostd::{EndPoint, Session, keyexpr, zsubscriber};
 
 extern crate alloc;
 
+#[cfg(feature = "aht20")]
+use thermostazvenoh::aht20::aht20_task;
 use thermostazvenoh::error::Error;
 use thermostazvenoh::network::{connection, net_task};
-use thermostazvenoh::relay::{RELAY_LEVEL, relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
+use thermostazvenoh::relay::{relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
+use thermostazvenoh::{HUMI_TEMP, RELAY_LEVEL};
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -149,10 +155,14 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     .with_sda(peripherals.GPIO10)
     .with_scl(peripherals.GPIO8);
 
-    info!("configure AHT20");
-    let mut aht = Aht20::new(i2c.into_async(), embassy_time::Delay)
-        .await
-        .expect("failed to init aht");
+    #[cfg(feature = "aht20")]
+    {
+        info!("configure AHT20");
+        let aht20 = Aht20::new(i2c.into_async(), embassy_time::Delay)
+            .await
+            .expect("failed to init aht");
+        spawner.spawn(aht20_task(aht20)).ok();
+    }
 
     info!("configure relay");
     let relay = Output::new(peripherals.GPIO1, Level::Low, OutputConfig::default());
@@ -187,36 +197,33 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
 
     info!("initialization done, starting main loop");
     loop {
-        if let Err(e) = main_loop(&mut aht, &mut session).await {
+        if let Err(e) = main_loop(&mut session).await {
             error!("main loop error: {:?}", e);
         }
-        Timer::after(Duration::from_secs(6 * 50)).await;
+        Timer::after(Duration::from_secs(5 * 60)).await;
     }
 }
 
-async fn main_loop<'a>(
-    aht: &mut Aht20<I2c<'a, esp_hal::Async>, embassy_time::Delay>,
-    session: &mut Session<PlatformEmbassy>,
-) -> Result<(), Error<'a>> {
+async fn main_loop<'a>(session: &mut Session<PlatformEmbassy>) -> Result<(), Error<'a>> {
     let mut msg: String<64> = String::new();
+    msg.push_str("{")?;
     let ke_pub = keyexpr::new("tele/thermostazvenoh/SENSOR")?;
 
-    info!("Read H T");
+    if let Some((humidity, temperature)) = HUMI_TEMP.try_take() {
+        write!(
+            msg,
+            "\"AHT20\":{{\"Temperature\": {:.2}, \"Humidity\": {:.2}}},",
+            temperature, humidity,
+        )
+        .map_err(|_| Error::Write)?;
+    };
 
-    let (humidity, temperature) = aht.read().await.map_err(|_| Error::AHT20)?;
     let level = RELAY_LEVEL.wait().await;
-    write!(
-        msg,
-        "{{\"AHT20\":{{\"Temperature\": {:.2}, \"Humidity\": {:.2}}}, \"RELAY\": {:?}}}",
-        temperature.celsius(),
-        humidity.rh(),
-        level,
-    )
-    .map_err(|_| Error::Write)?;
+    write!(msg, "\"RELAY\": {:?}}}", level).map_err(|_| Error::Write)?;
 
-    info!("data: {}", msg);
+    info!("pub: {}", msg);
 
-    session.put(ke_pub, &msg.clone().into_bytes()).await?;
+    session.put(ke_pub, &msg.into_bytes()).await?;
 
     Ok(())
 }
