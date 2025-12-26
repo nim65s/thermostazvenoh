@@ -140,7 +140,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
         Timer::after(Duration::from_millis(500)).await;
     }
 
-    info!("configure AHT20");
+    info!("configure i2c");
     let i2c = I2c::new(
         peripherals.I2C0,
         Config::default().with_frequency(esp_hal::time::Rate::from_khz(400)),
@@ -148,6 +148,8 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     .unwrap()
     .with_sda(peripherals.GPIO10)
     .with_scl(peripherals.GPIO8);
+
+    info!("configure AHT20");
     let mut aht = Aht20::new(i2c.into_async(), embassy_time::Delay)
         .await
         .expect("failed to init aht");
@@ -169,6 +171,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
 
     let mut session = zenoh_nostd::open!(zconfig, endpoint);
 
+    info!("configure relay cmnd subscriber");
     let ke_relay_cmnd_sub = keyexpr::new("cmnd/thermostazvenoh/RELAY")?;
     let async_sub = session
         .declare_subscriber(
