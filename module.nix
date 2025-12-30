@@ -8,6 +8,7 @@ let
   moduleName = "thermostazvenoh";
   cfg = config.services."${moduleName}";
   network = "10.74.47";
+  secretInfluxDBToken = "please-use-sops-nix-or-agenix";
 in
 {
   options = {
@@ -62,20 +63,77 @@ in
             channel = 1;
             networks."${cfg.radio}" = {
               ssid = moduleName;
-              authentication.saePasswords = [ { password = moduleName; } ];
+              authentication = {
+                # wpa3 does not seem to work with embassy esp yet
+                mode = "wpa2-sha256";
+                wpaPassword = moduleName;
+              };
             };
+          };
+        };
+      };
+      influxdb2 = {
+        enable = true;
+        provision = {
+          enable = true;
+          initialSetup = {
+            bucket = moduleName;
+            organization = moduleName;
+            tokenFile = pkgs.writeText "token" secretInfluxDBToken;
+            passwordFile = pkgs.writeText "password" "not-${secretInfluxDBToken}";
+          };
+          # organizations = {
+          #   "${moduleName}" = {
+          #     description = "${moduleName} organization";
+          #     auths."${moduleName}" = {
+          #       writeBuckets = [ "${moduleName}" ];
+          #       tokenFile = pkgs.writeText "token" secretInfluxDBToken;
+          #     };
+          #   };
+          # };
+        };
+      };
+      nginx = {
+        enable = true;
+        virtualHosts.localhost = {
+          default = true;
+          locations."/" = {
+            recommendedProxySettings = true;
+            proxyWebsockets = true;
+            proxyPass =
+              let
+                grafana = config.services.grafana.settings.server;
+              in
+              "http://${grafana.http_addr}:${toString grafana.http_port}";
           };
         };
       };
       zenohd = {
         enable = true;
         plugins = [ pkgs.zenoh-plugin-mqtt ];
-        backends = [ ];
+        backends = [ pkgs.zenoh-backend-influxdb ];
         settings.plugins = {
           mqtt = { };
-          storage_manager.storages."${moduleName}" = {
-            key_expr = "tele/**";
-            volume.id = "memory";
+          rest.http_port = 8000;
+          storage_manager = {
+            volumes.influxdb2 = {
+              url = "http://localhost:8086";
+              private = {
+                org_id = moduleName;
+                token = secretInfluxDBToken;
+              };
+            };
+            storages."${moduleName}" = {
+              key_expr = "tele/**";
+              volume = {
+                id = "influxdb2";
+                db = moduleName;
+                private = {
+                  org_id = moduleName;
+                  token = secretInfluxDBToken;
+                };
+              };
+            };
           };
         };
       };
