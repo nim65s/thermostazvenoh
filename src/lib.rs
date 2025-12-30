@@ -10,6 +10,9 @@ pub static RELAY_LEVEL: Signal<CriticalSectionRawMutex, esp_hal::gpio::Level> = 
 #[cfg(feature = "aht20")]
 pub mod aht20;
 
+#[cfg(feature = "shtc3")]
+pub mod shtc3;
+
 pub mod error;
 pub mod network;
 pub mod relay;

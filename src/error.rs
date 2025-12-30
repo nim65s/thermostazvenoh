@@ -29,6 +29,12 @@ pub enum Error<'a> {
     #[error("aht20 error TODO")]
     AHT20,
 
+    #[error("shtcx Crc error")]
+    ShtCxCrc,
+
+    #[error("I2c error TODO")]
+    I2c(esp_hal::i2c::master::Error),
+
     #[error("core::fmt::Write error")]
     Write,
 
@@ -87,5 +93,14 @@ impl From<zenoh_nostd::ZKeyExprError> for Error<'_> {
 impl From<heapless::CapacityError> for Error<'_> {
     fn from(e: heapless::CapacityError) -> Self {
         Error::Capacity(e)
+    }
+}
+
+impl From<shtcx::Error<esp_hal::i2c::master::Error>> for Error<'_> {
+    fn from(e: shtcx::Error<esp_hal::i2c::master::Error>) -> Self {
+        match e {
+            shtcx::Error::I2c(e) => Error::I2c(e),
+            shtcx::Error::Crc => Error::ShtCxCrc,
+        }
     }
 }

@@ -1502,6 +1502,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "shtcx"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c25d66e6c78c6e19160a5b528cebe6f54d5737f091a2b90b08dbd7e63a9269f"
+dependencies = [
+ "embedded-hal 1.0.0",
+]
+
+[[package]]
 name = "smoltcp"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1649,6 +1658,7 @@ dependencies = [
  "esp-rtos",
  "getrandom",
  "heapless 0.9.2",
+ "shtcx",
  "smoltcp",
  "spin",
  "static_cell",

@@ -8,7 +8,7 @@ use crate::HUMI_TEMP;
 #[embassy_executor::task]
 pub async fn aht20_task(mut aht: Aht20<I2c<'static, esp_hal::Async>, embassy_time::Delay>) {
     loop {
-        info!("Read H T");
+        info!("Read aht20 Humidity & Temperature");
         match aht.read().await {
             Ok((humidity, temperature)) => HUMI_TEMP.signal((humidity.rh(), temperature.celsius())),
             Err(_e) => error!("can't read aht20 data"),

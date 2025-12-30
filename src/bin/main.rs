@@ -41,6 +41,8 @@ use thermostazvenoh::aht20::aht20_task;
 use thermostazvenoh::error::Error;
 use thermostazvenoh::network::{connection, net_task};
 use thermostazvenoh::relay::{relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
+#[cfg(feature = "shtc3")]
+use thermostazvenoh::shtc3::shtc3_task;
 use thermostazvenoh::{HUMI_TEMP, RELAY_LEVEL};
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
@@ -162,6 +164,12 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
             .await
             .expect("failed to init aht");
         spawner.spawn(aht20_task(aht20)).ok();
+    }
+
+    #[cfg(feature = "shtc3")]
+    {
+        let shtc3 = shtcx::shtc3(i2c);
+        spawner.spawn(shtc3_task(shtc3)).ok();
     }
 
     info!("configure relay");
