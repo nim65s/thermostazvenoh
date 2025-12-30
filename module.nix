@@ -52,6 +52,19 @@ in
           #   }
           # ];
           datasources.settings.datasources = [
+            {
+              name = "InfluxDB";
+              type = "influxdb";
+              isDefault = true;
+              access = "proxy";
+              url = "http://localhost:8086";
+              jsonData = {
+                version = "Flux";
+                organization = moduleName;
+                defaultBucket = moduleName;
+              };
+              secureJsonData.token = secretInfluxDBToken;
+            }
           ];
         };
       };
@@ -142,6 +155,7 @@ in
       firewall = {
         allowedTCPPorts = [
           53
+          80
           7447
         ];
         allowedUDPPorts = [
