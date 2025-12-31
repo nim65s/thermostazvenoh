@@ -9,6 +9,7 @@ let
   cfg = config.services."${moduleName}";
   network = "10.74.47";
   secretInfluxDBToken = "please-use-sops-nix-or-agenix";
+  wifiPassword = "password";
 in
 {
   options = {
@@ -79,7 +80,7 @@ in
               authentication = {
                 # wpa3 does not seem to work with embassy esp yet
                 mode = "wpa2-sha256";
-                wpaPassword = moduleName;
+                wpaPassword = wifiPassword;
               };
             };
           };

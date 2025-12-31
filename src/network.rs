@@ -25,7 +25,7 @@ pub async fn connection(mut controller: WifiController<'static>) {
             let client_config = ModeConfig::Client(
                 ClientConfig::default()
                     .with_ssid(SSID.unwrap_or("kal").into())
-                    .with_password(PASSWORD.unwrap_or("kal").into()),
+                    .with_password(PASSWORD.unwrap_or("password").into()),
             );
             controller.set_config(&client_config).unwrap();
             info!("Starting wifi");
