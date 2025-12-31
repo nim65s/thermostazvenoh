@@ -3,8 +3,8 @@
   ...
 }:
 {
-  # thermostazvenoh
-  services.thermostazvenoh.enable = true;
+  # kal
+  services.kal.enable = true;
 
   # keyboard layout
   console.useXkbConfig = true;

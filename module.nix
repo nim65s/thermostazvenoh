@@ -5,7 +5,7 @@
   ...
 }:
 let
-  moduleName = "thermostazvenoh";
+  moduleName = "kal";
   cfg = config.services."${moduleName}";
   network = "10.74.47";
   secretInfluxDBToken = "please-use-sops-nix-or-agenix";

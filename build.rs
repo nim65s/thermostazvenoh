@@ -1,8 +1,32 @@
 fn main() {
     linker_be_nice();
+    generate_keyexprs();
     println!("cargo:rustc-link-arg=-Tdefmt.x");
     // make sure linkall.x is the last linker script (otherwise might cause problems with flip-link)
     println!("cargo:rustc-link-arg=-Tlinkall.x");
+}
+
+fn generate_keyexprs() {
+    let device = std::env::var("DEVICE").unwrap_or("CHANGEME".to_string());
+    println!("cargo:rustc-env=DEVICE={device}");
+
+    let mut out = String::new();
+
+    for a in ["cmnd", "tele"] {
+        for b in ["relay", "led", "temperature", "humidity", "dewpoint"] {
+            out.push_str(&format!(
+                r#"const {}_{}: &zenoh_nostd::keyexpr = zenoh_nostd::keyexpr::from_str_unchecked("{a}/kal_{device}/{b}");
+"#,
+                a.to_uppercase(),
+                b.to_uppercase(),
+            ));
+        }
+    }
+    std::fs::write(
+        std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("keyexprs.rs"),
+        out,
+    )
+    .unwrap();
 }
 
 fn linker_be_nice() {

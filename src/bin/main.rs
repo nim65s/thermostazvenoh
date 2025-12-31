@@ -8,7 +8,6 @@
 #[cfg(all(feature = "aht20", feature = "shtc3"))]
 compile_error!("feature \"aht20\" and feature \"shtc3\" cannot be enabled at the same time");
 
-use core::fmt::Write;
 use core::num::NonZeroU32;
 
 #[cfg(feature = "aht20")]
@@ -30,20 +29,19 @@ use esp_hal::{clock::CpuClock, peripherals::Peripherals, ram, rng::Rng, timer::t
 use esp_println as _;
 use esp_radio::Controller;
 use getrandom::register_custom_getrandom;
-use heapless::String;
 use zenoh_embassy::PlatformEmbassy;
-use zenoh_nostd::{EndPoint, Session, keyexpr, zsubscriber};
+use zenoh_nostd::{EndPoint, Session, zsubscriber};
 
 extern crate alloc;
 
 #[cfg(feature = "aht20")]
-use thermostazvenoh::aht20::aht20_task;
-use thermostazvenoh::error::Error;
-use thermostazvenoh::network::{connection, net_task};
-use thermostazvenoh::relay::{relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
+use kal::aht20::aht20_task;
+use kal::error::Error;
+use kal::kalval::{KAL_CHAN, KalVal, KeyExprType};
+use kal::network::{connection, net_task};
+use kal::relay::{relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
 #[cfg(feature = "shtc3")]
-use thermostazvenoh::shtc3::shtc3_task;
-use thermostazvenoh::{HUMI_TEMP, RELAY_LEVEL};
+use kal::shtc3::shtc3_task;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -190,15 +188,15 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     let mut session = zenoh_nostd::open!(zconfig, endpoint);
 
     info!("configure relay cmnd subscriber");
-    let ke_relay_cmnd_sub = keyexpr::new("cmnd/thermostazvenoh/RELAY")?;
+    let ke_cmnd_relay = KalVal::Relay(None).as_keyexpr(&KeyExprType::Command);
     let async_sub = session
         .declare_subscriber(
-            ke_relay_cmnd_sub,
+            ke_cmnd_relay,
             zsubscriber!(QUEUE_SIZE: 8, MAX_KEYEXPR: 32, MAX_PAYLOAD: 128),
         )
         .await?;
     session
-        .get(ke_relay_cmnd_sub, relay_cmnd_callback)
+        .get(ke_cmnd_relay, relay_cmnd_callback)
         .send()
         .await?;
     spawner.spawn(relay_cmnd_sub_task(async_sub)).ok();
@@ -208,30 +206,17 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
         if let Err(e) = main_loop(&mut session).await {
             error!("main loop error: {:?}", e);
         }
-        Timer::after(Duration::from_secs(5 * 60)).await;
     }
 }
 
 async fn main_loop<'a>(session: &mut Session<PlatformEmbassy>) -> Result<(), Error<'a>> {
-    let mut msg: String<64> = String::new();
-    msg.push_str("{")?;
-    let ke_pub = keyexpr::new("tele/thermostazvenoh/SENSOR")?;
-
-    if let Some((humidity, temperature)) = HUMI_TEMP.try_take() {
-        write!(
-            msg,
-            "\"AHT20\":{{\"Temperature\": {:.2}, \"Humidity\": {:.2}}},",
-            temperature, humidity,
+    let kalval = KAL_CHAN.receive().await;
+    session
+        .put(
+            kalval.as_keyexpr(&KeyExprType::Telemetry),
+            &kalval.as_string()?.into_bytes(),
         )
-        .map_err(|_| Error::Write)?;
-    };
-
-    let level = RELAY_LEVEL.wait().await;
-    write!(msg, "\"RELAY\": {:?}}}", level).map_err(|_| Error::Write)?;
-
-    info!("pub: {}", msg);
-
-    session.put(ke_pub, &msg.into_bytes()).await?;
+        .await?;
 
     Ok(())
 }

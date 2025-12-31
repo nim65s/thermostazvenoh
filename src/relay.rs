@@ -1,11 +1,13 @@
 use crate::error::Error;
 use defmt::{Format, error, info};
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_time::{Duration, Timer};
 use esp_hal::gpio::{Level, Output};
 use zenoh_nostd::ZReply;
 
-use crate::RELAY_LEVEL;
+use crate::kalval::{KAL_CHAN, KalVal};
 
 static RELAY_CMND: Channel<CriticalSectionRawMutex, RelayCmnd, 5> = Channel::new();
 
@@ -69,31 +71,48 @@ fn handle_reply<'a>(reply: &ZReply<'a>) -> Result<(), Error<'a>> {
 
 #[embassy_executor::task]
 pub async fn relay_task(mut relay: Output<'static>) {
+    let sender = KAL_CHAN.sender();
+    let send = async |level: Level| sender.send(KalVal::Relay(Some(level.into()))).await;
+
     let mut level = Level::Low;
-    RELAY_LEVEL.signal(level);
+    send(level).await;
+
     let receiver = RELAY_CMND.receiver();
     loop {
-        level = match receiver.receive().await {
-            RelayCmnd::On => Level::High,
-            RelayCmnd::Off => Level::Low,
-            RelayCmnd::Toggle => !level,
-        };
-        info!("relay {}", level);
-        RELAY_LEVEL.signal(level);
-        relay.set_level(level);
+        match select(
+            receiver.receive(),
+            Timer::after(Duration::from_secs(5 * 60)),
+        )
+        .await
+        {
+            Either::Second(()) => {}
+            Either::First(val) => {
+                level = match val {
+                    RelayCmnd::On => Level::High,
+                    RelayCmnd::Off => Level::Low,
+                    RelayCmnd::Toggle => !level,
+                };
+                info!("relay {}", level);
+                relay.set_level(level);
+            }
+        }
+        send(level).await;
     }
 }
 
 #[embassy_executor::task]
 pub async fn relay_cmnd_sub_task(subscriber: zenoh_nostd::ZSubscriber<32, 128>) {
+    let sender = RELAY_CMND.sender();
+    let send = async |cmnd: RelayCmnd| {
+        sender.send(cmnd).await;
+    };
+
     loop {
         match subscriber.recv().await {
-            Ok(sample) => {
-                RELAY_CMND
-                    .sender()
-                    .send(sample.payload().try_into().unwrap())
-                    .await
-            }
+            Ok(sample) => match sample.payload().try_into() {
+                Ok(cmnd) => send(cmnd).await,
+                Err(e) => error!("Can't decode sample: {:?}", e),
+            },
             Err(e) => error!("Invalid sample: {:?}", e),
         }
     }

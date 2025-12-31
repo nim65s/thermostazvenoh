@@ -35,6 +35,9 @@ pub enum Error<'a> {
     #[error("I2c error TODO")]
     I2c(esp_hal::i2c::master::Error),
 
+    #[error("core::fmt::Error error")]
+    Format,
+
     #[error("core::fmt::Write error")]
     Write,
 
@@ -96,6 +99,13 @@ impl From<heapless::CapacityError> for Error<'_> {
     }
 }
 
+impl From<core::fmt::Error> for Error<'_> {
+    fn from(_e: core::fmt::Error) -> Self {
+        Error::Format
+    }
+}
+
+#[cfg(feature = "shtc3")]
 impl From<shtcx::Error<esp_hal::i2c::master::Error>> for Error<'_> {
     fn from(e: shtcx::Error<esp_hal::i2c::master::Error>) -> Self {
         match e {
