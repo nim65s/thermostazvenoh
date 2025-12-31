@@ -38,6 +38,7 @@ extern crate alloc;
 use kal::aht20::aht20_task;
 use kal::error::Error;
 use kal::kalval::{KAL_CHAN, KalVal, KeyExprType};
+use kal::led::{led_cmnd_callback, led_cmnd_sub_task, led_task};
 use kal::network::{connection, net_task};
 use kal::relay::{relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
 #[cfg(feature = "shtc3")]
@@ -170,11 +171,6 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
         let shtc3 = shtcx::shtc3(i2c);
         spawner.spawn(shtc3_task(shtc3)).ok();
     }
-
-    info!("configure relay");
-    let relay = Output::new(peripherals.GPIO1, Level::Low, OutputConfig::default());
-    spawner.spawn(relay_task(relay)).ok();
-
     info!("configure zenoh");
     let endpoint = EndPoint::try_from(CONNECT.unwrap_or("tcp/10.74.47.1:7447"))?;
     let zconfig = zenoh_nostd::zconfig!(
@@ -187,6 +183,25 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     );
 
     let mut session = zenoh_nostd::open!(zconfig, endpoint);
+
+    info!("configure led");
+    let led = Output::new(peripherals.GPIO7, Level::Low, OutputConfig::default());
+    spawner.spawn(led_task(led)).ok();
+
+    info!("configure led cmnd subscriber");
+    let ke_cmnd_led = KalVal::Led(Togglable::default()).as_keyexpr(&KeyExprType::Command);
+    let async_sub = session
+        .declare_subscriber(
+            ke_cmnd_led,
+            zsubscriber!(QUEUE_SIZE: 8, MAX_KEYEXPR: 32, MAX_PAYLOAD: 128),
+        )
+        .await?;
+    session.get(ke_cmnd_led, led_cmnd_callback).send().await?;
+    spawner.spawn(led_cmnd_sub_task(async_sub)).ok();
+
+    info!("configure relay");
+    let relay = Output::new(peripherals.GPIO1, Level::Low, OutputConfig::default());
+    spawner.spawn(relay_task(relay)).ok();
 
     info!("configure relay cmnd subscriber");
     let ke_cmnd_relay = KalVal::Relay(Togglable::default()).as_keyexpr(&KeyExprType::Command);

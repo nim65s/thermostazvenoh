@@ -9,6 +9,7 @@ pub mod shtc3;
 
 pub mod error;
 pub mod kalval;
+pub mod led;
 pub mod network;
 pub mod relay;
 pub mod togglable;
