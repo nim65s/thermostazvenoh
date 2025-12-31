@@ -1,6 +1,8 @@
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
+use crate::togglable::Togglable;
+
 include!(concat!(env!("OUT_DIR"), "/keyexprs.rs"));
 
 pub static KAL_CHAN: Channel<CriticalSectionRawMutex, KalVal, 3> = Channel::new();
@@ -13,22 +15,22 @@ pub enum KeyExprType {
 
 #[derive(Debug, defmt::Format)]
 pub enum KalVal {
-    Led(Option<bool>),
-    Relay(Option<bool>),
+    Led(Togglable),
+    Relay(Togglable),
     Temperature(Option<f32>),
     Humidity(Option<f32>),
     DewPoint(Option<f32>),
 }
 
 impl KalVal {
-    pub fn as_string(&self) -> Result<heapless::String<30>, core::fmt::Error> {
-        match self {
-            Self::Relay(Some(v)) | Self::Led(Some(v)) => heapless::format!("{}", v),
+    pub fn as_string(&self) -> Result<heapless::String<10>, crate::error::Error> {
+        Ok(match self {
+            Self::Relay(v) | Self::Led(v) => heapless::String::try_from(v.as_str())?,
             Self::Temperature(Some(v)) | Self::Humidity(Some(v)) | Self::DewPoint(Some(v)) => {
-                heapless::format!("{}", v)
+                heapless::format!("{:.2}", v)?
             }
             _ => unreachable!(),
-        }
+        })
     }
     pub fn as_keyexpr(&self, ke_type: &KeyExprType) -> &'static zenoh_nostd::keyexpr {
         match (ke_type, self) {

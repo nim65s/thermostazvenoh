@@ -11,3 +11,4 @@ pub mod error;
 pub mod kalval;
 pub mod network;
 pub mod relay;
+pub mod togglable;

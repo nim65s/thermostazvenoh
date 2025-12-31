@@ -91,7 +91,7 @@ async fn main(spawner: Spawner) -> ! {
     esp_hal::system::software_reset()
 }
 
-async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(), Error<'a>> {
+async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(), Error> {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
@@ -188,7 +188,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     let mut session = zenoh_nostd::open!(zconfig, endpoint);
 
     info!("configure relay cmnd subscriber");
-    let ke_cmnd_relay = KalVal::Relay(None).as_keyexpr(&KeyExprType::Command);
+    let ke_cmnd_relay = KalVal::Relay(None.into()).as_keyexpr(&KeyExprType::Command);
     let async_sub = session
         .declare_subscriber(
             ke_cmnd_relay,
@@ -209,7 +209,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     }
 }
 
-async fn main_loop<'a>(session: &mut Session<PlatformEmbassy>) -> Result<(), Error<'a>> {
+async fn main_loop(session: &mut Session<PlatformEmbassy>) -> Result<(), Error> {
     let kalval = KAL_CHAN.receive().await;
     session
         .put(
