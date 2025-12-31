@@ -9,8 +9,8 @@ use crate::kalval::{KAL_CHAN, KalVal};
 pub async fn aht20_task(mut aht: Aht20<I2c<'static, esp_hal::Async>, embassy_time::Delay>) {
     let sender = KAL_CHAN.sender();
     let send = async |h: aht20_async::Humidity, t: aht20_async::Temperature| {
-        sender.send(KalVal::Humidity(Some(h.rh()))).await;
-        sender.send(KalVal::Temperature(Some(t.celsius()))).await;
+        sender.send(KalVal::Humidity(h.rh())).await;
+        sender.send(KalVal::Temperature(t.celsius())).await;
     };
 
     loop {

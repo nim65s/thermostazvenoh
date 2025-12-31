@@ -42,6 +42,7 @@ use kal::network::{connection, net_task};
 use kal::relay::{relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
 #[cfg(feature = "shtc3")]
 use kal::shtc3::shtc3_task;
+use kal::togglable::Togglable;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -188,7 +189,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     let mut session = zenoh_nostd::open!(zconfig, endpoint);
 
     info!("configure relay cmnd subscriber");
-    let ke_cmnd_relay = KalVal::Relay(None.into()).as_keyexpr(&KeyExprType::Command);
+    let ke_cmnd_relay = KalVal::Relay(Togglable::default()).as_keyexpr(&KeyExprType::Command);
     let async_sub = session
         .declare_subscriber(
             ke_cmnd_relay,
@@ -211,6 +212,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
 
 async fn main_loop(session: &mut Session<PlatformEmbassy>) -> Result<(), Error> {
     let kalval = KAL_CHAN.receive().await;
+    info!("put {}", kalval);
     session
         .put(
             kalval.as_keyexpr(&KeyExprType::Telemetry),

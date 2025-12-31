@@ -17,19 +17,18 @@ pub enum KeyExprType {
 pub enum KalVal {
     Led(Togglable),
     Relay(Togglable),
-    Temperature(Option<f32>),
-    Humidity(Option<f32>),
-    DewPoint(Option<f32>),
+    Temperature(f32),
+    Humidity(f32),
+    DewPoint(f32),
 }
 
 impl KalVal {
     pub fn as_string(&self) -> Result<heapless::String<10>, crate::error::Error> {
         Ok(match self {
             Self::Relay(v) | Self::Led(v) => heapless::String::try_from(v.as_str())?,
-            Self::Temperature(Some(v)) | Self::Humidity(Some(v)) | Self::DewPoint(Some(v)) => {
+            Self::Temperature(v) | Self::Humidity(v) | Self::DewPoint(v) => {
                 heapless::format!("{:.2}", v)?
             }
-            _ => unreachable!(),
         })
     }
     pub fn as_keyexpr(&self, ke_type: &KeyExprType) -> &'static zenoh_nostd::keyexpr {

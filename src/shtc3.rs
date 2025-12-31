@@ -12,9 +12,9 @@ use crate::{
 pub async fn shtc3_task(mut sht: shtcx::ShtC3<I2c<'static, esp_hal::Blocking>>) {
     let sender = KAL_CHAN.sender();
     let send = async |h: shtcx::Humidity, t: shtcx::Temperature| {
-        sender.send(KalVal::Humidity(Some(h.as_percent()))).await;
+        sender.send(KalVal::Humidity(h.as_percent())).await;
         sender
-            .send(KalVal::Temperature(Some(t.as_degrees_celsius())))
+            .send(KalVal::Temperature(t.as_degrees_celsius()))
             .await;
     };
 

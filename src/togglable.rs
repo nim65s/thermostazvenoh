@@ -52,3 +52,9 @@ impl Togglable {
         }
     }
 }
+
+impl Default for Togglable {
+    fn default() -> Self {
+        Self::Off
+    }
+}
