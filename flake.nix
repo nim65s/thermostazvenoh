@@ -45,6 +45,7 @@
                   (rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
                   espflash
                   esp-generate
+                  mosquitto
                   probe-rs-tools
                 ];
               };

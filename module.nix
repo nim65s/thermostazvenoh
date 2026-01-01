@@ -47,11 +47,11 @@ in
         enable = true;
         provision = {
           enable = true;
-          # dashboards.settings.providers = [
-          #   {
-          #     options.path = ./dashboards;
-          #   }
-          # ];
+          dashboards.settings.providers = [
+            {
+              options.path = ./dashboards;
+            }
+          ];
           datasources.settings.datasources = [
             {
               name = "InfluxDB";
@@ -157,6 +157,7 @@ in
         allowedTCPPorts = [
           53
           80
+          1883
           7447
         ];
         allowedUDPPorts = [
@@ -185,5 +186,6 @@ in
         wifi.powersave = false;
       };
     };
+    systemd.services.zenohd.after = [ "influxdb2.service" ];
   };
 }

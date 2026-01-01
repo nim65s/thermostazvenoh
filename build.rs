@@ -13,9 +13,9 @@ fn generate_keyexprs() {
     let mut out = String::new();
 
     for a in ["cmnd", "tele"] {
-        for b in ["relay", "led", "temperature", "humidity", "dewpoint"] {
+        for b in ["relay", "led", "temperature", "humidity", "hello"] {
             out.push_str(&format!(
-                r#"const {}_{}: &zenoh_nostd::keyexpr = zenoh_nostd::keyexpr::from_str_unchecked("{a}/kal_{device}/{b}");
+                r#"const {}_{}: &zenoh_nostd::keyexpr = zenoh_nostd::keyexpr::from_str_unchecked("{a}/{device}/{b}");
 "#,
                 a.to_uppercase(),
                 b.to_uppercase(),

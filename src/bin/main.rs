@@ -37,7 +37,7 @@ extern crate alloc;
 #[cfg(feature = "aht20")]
 use kal::aht20::aht20_task;
 use kal::error::Error;
-use kal::kalval::{KAL_CHAN, KalVal, KeyExprType};
+use kal::kalval::{KAL_CHAN, KalVal};
 use kal::led::{led_cmnd_callback, led_cmnd_sub_task, led_task};
 use kal::network::{connection, net_task};
 use kal::relay::{relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
@@ -109,6 +109,10 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     let wifi_interface = interfaces.sta;
 
     let config = embassy_net::Config::dhcpv4(Default::default());
+    // TODO
+    // if let Some(hostname) = option_env!("DEVICE") {
+    // config.ipv4.hostname = Some(hostname);
+    // }
 
     let rng = Rng::new();
     let seed = (rng.random() as u64) << 32 | rng.random() as u64;
@@ -189,7 +193,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     spawner.spawn(led_task(led)).ok();
 
     info!("configure led cmnd subscriber");
-    let ke_cmnd_led = KalVal::Led(Togglable::default()).as_keyexpr(&KeyExprType::Command);
+    let ke_cmnd_led = KalVal::Led(Togglable::default()).as_cmnd_keyexpr();
     let async_sub = session
         .declare_subscriber(
             ke_cmnd_led,
@@ -204,7 +208,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     spawner.spawn(relay_task(relay)).ok();
 
     info!("configure relay cmnd subscriber");
-    let ke_cmnd_relay = KalVal::Relay(Togglable::default()).as_keyexpr(&KeyExprType::Command);
+    let ke_cmnd_relay = KalVal::Relay(Togglable::default()).as_cmnd_keyexpr();
     let async_sub = session
         .declare_subscriber(
             ke_cmnd_relay,
@@ -216,6 +220,12 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
         .send()
         .await?;
     spawner.spawn(relay_cmnd_sub_task(async_sub)).ok();
+
+    info!("say hello");
+    let hello = KalVal::Hello;
+    session
+        .put(hello.as_tele_keyexpr(), &hello.as_string()?.into_bytes())
+        .await?;
 
     info!("initialization done, starting main loop");
     loop {
@@ -229,10 +239,7 @@ async fn main_loop(session: &mut Session<PlatformEmbassy>) -> Result<(), Error> 
     let kalval = KAL_CHAN.receive().await;
     info!("put {}", kalval);
     session
-        .put(
-            kalval.as_keyexpr(&KeyExprType::Telemetry),
-            &kalval.as_string()?.into_bytes(),
-        )
+        .put(kalval.as_tele_keyexpr(), &kalval.as_string()?.into_bytes())
         .await?;
 
     Ok(())
