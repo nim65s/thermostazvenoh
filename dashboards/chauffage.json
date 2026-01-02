@@ -188,7 +188,7 @@
                                    "refId": "C"
                             }
                      ],
-                     "title": "Chauffage",
+                     "title": "Kal",
                      "transparent": true,
                      "type": "timeseries"
               }
@@ -230,7 +230,7 @@
        },
        "timepicker": {},
        "timezone": "browser",
-       "title": "Chauffage",
+       "title": "Kal",
        "uid": "ad6l98b",
        "version": 15
 }
