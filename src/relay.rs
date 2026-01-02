@@ -11,7 +11,7 @@ use crate::kalval::{KAL_CHAN, KalVal};
 use crate::togglable::Togglable;
 
 static RELAY_SIGNAL: Signal<CriticalSectionRawMutex, Togglable> = Signal::new();
-pub fn relay_cmnd_callback(reply: &ZReply) {
+pub fn relay_query_cb(reply: &ZReply) {
     if let Err(e) = handle_reply(reply) {
         error!("Query callback error: {:?}", e);
     }
@@ -74,7 +74,7 @@ pub async fn relay_task(mut relay: Output<'static>) {
 }
 
 #[embassy_executor::task]
-pub async fn relay_cmnd_sub_task(subscriber: zenoh_nostd::ZSubscriber<32, 128>) {
+pub async fn relay_sub_task(subscriber: zenoh_nostd::ZSubscriber<32, 128>) {
     loop {
         match subscriber.recv().await {
             Ok(sample) => RELAY_SIGNAL.signal(sample.payload().into()),

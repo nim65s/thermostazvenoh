@@ -39,9 +39,9 @@ extern crate alloc;
 use kal::aht20::aht20_task;
 use kal::error::Error;
 use kal::kalval::{KAL_CHAN, KalVal};
-use kal::led::{led_cmnd_callback, led_cmnd_sub_task, led_task};
+use kal::led::{led_query_cb, led_sub_task, led_task};
 use kal::network::{connection, net_task};
-use kal::relay::{relay_cmnd_callback, relay_cmnd_sub_task, relay_task};
+use kal::relay::{relay_query_cb, relay_sub_task, relay_task};
 #[cfg(feature = "shtc3")]
 use kal::shtc3::shtc3_task;
 use kal::togglable::Togglable;
@@ -201,8 +201,8 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
             zsubscriber!(QUEUE_SIZE: 8, MAX_KEYEXPR: 32, MAX_PAYLOAD: 128),
         )
         .await?;
-    session.get(ke_cmnd_led, led_cmnd_callback).send().await?;
-    spawner.spawn(led_cmnd_sub_task(async_sub)).ok();
+    session.get(ke_cmnd_led, led_query_cb).send().await?;
+    spawner.spawn(led_sub_task(async_sub)).ok();
 
     info!("configure relay");
     let relay = Output::new(peripherals.GPIO1, Level::Low, OutputConfig::default());
@@ -216,11 +216,8 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
             zsubscriber!(QUEUE_SIZE: 8, MAX_KEYEXPR: 32, MAX_PAYLOAD: 128),
         )
         .await?;
-    session
-        .get(ke_cmnd_relay, relay_cmnd_callback)
-        .send()
-        .await?;
-    spawner.spawn(relay_cmnd_sub_task(async_sub)).ok();
+    session.get(ke_cmnd_relay, relay_query_cb).send().await?;
+    spawner.spawn(relay_sub_task(async_sub)).ok();
 
     info!("say hello");
     let hello = KalVal::Hello;

@@ -11,7 +11,7 @@ use crate::kalval::{KAL_CHAN, KalVal};
 use crate::togglable::Togglable;
 
 static LED_SIGNAL: Signal<CriticalSectionRawMutex, Togglable> = Signal::new();
-pub fn led_cmnd_callback(reply: &ZReply) {
+pub fn led_query_cb(reply: &ZReply) {
     if let Err(e) = handle_reply(reply) {
         error!("Query callback error: {:?}", e);
     }
@@ -69,7 +69,7 @@ pub async fn led_task(mut led: Output<'static>) {
 }
 
 #[embassy_executor::task]
-pub async fn led_cmnd_sub_task(subscriber: zenoh_nostd::ZSubscriber<32, 128>) {
+pub async fn led_sub_task(subscriber: zenoh_nostd::ZSubscriber<32, 128>) {
     loop {
         match subscriber.recv().await {
             Ok(sample) => LED_SIGNAL.signal(sample.payload().into()),
