@@ -25,6 +25,7 @@ use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::i2c::master::{Config, I2c};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::interrupt::software::SoftwareInterruptControl;
+use esp_hal::timer::timg::MwdtStage;
 use esp_hal::{clock::CpuClock, peripherals::Peripherals, ram, rng::Rng, timer::timg::TimerGroup};
 use esp_println as _;
 use esp_radio::Controller;
@@ -227,8 +228,17 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
         .put(hello.as_tele_keyexpr(), &hello.as_string()?.into_bytes())
         .await?;
 
+    info!("start watchdog");
+    let mut wdt = timg0.wdt;
+    wdt.set_timeout(
+        MwdtStage::Stage0,
+        esp_hal::time::Duration::from_secs(6 * 60),
+    );
+    wdt.enable();
+
     info!("initialization done, starting main loop");
     loop {
+        wdt.feed();
         if let Err(e) = main_loop(&mut session).await {
             error!("main loop error: {:?}", e);
         }
