@@ -138,7 +138,7 @@ in
               };
             };
             storages."${moduleName}" = {
-              key_expr = "tele/**";
+              key_expr = "kal/**";
               volume = {
                 id = "influxdb2";
                 db = moduleName;

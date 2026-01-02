@@ -15,7 +15,7 @@ fn generate_keyexprs() {
     for a in ["cmnd", "tele"] {
         for b in ["relay", "led", "temperature", "humidity", "hello"] {
             out.push_str(&format!(
-                r#"const {}_{}: &zenoh_nostd::keyexpr = zenoh_nostd::keyexpr::from_str_unchecked("{a}/{device}/{b}");
+                r#"const {}_{}: &zenoh_nostd::keyexpr = zenoh_nostd::keyexpr::from_str_unchecked("kal/{a}/{device}/{b}");
 "#,
                 a.to_uppercase(),
                 b.to_uppercase(),

@@ -166,7 +166,7 @@
                                           "name": "InfluxDB",
                                           "type": "influxdb"
                                    },
-                                   "query": "import \"strings\"\nfrom(bucket: \"kal\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) =>\n    r._measurement =~ /tele\\/.+\\/temperature$/\n    and contains(\n      value: strings.split(v: r._measurement, t: \"/\")[1],\n      set: ${device:json}\n    )\n    and r._field == \"value\"\n  )\n  |> map(fn: (r) => ({\n      r with\n      _value: float(v: r._value),\n  }))\n  |> drop(columns: [\"kind\", \"_field\"])\n",
+                                   "query": "import \"strings\"\nfrom(bucket: \"kal\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) =>\n    r._measurement =~ /kal\\/tele\\/.+\\/temperature$/\n    and contains(\n      value: strings.split(v: r._measurement, t: \"/\")[2],\n      set: ${device:json}\n    )\n    and r._field == \"value\"\n  )\n  |> map(fn: (r) => ({\n      r with\n      _value: float(v: r._value),\n  }))\n  |> drop(columns: [\"kind\", \"_field\"])\n",
                                    "refId": "A"
                             },
                             {
@@ -175,7 +175,7 @@
                                           "type": "influxdb"
                                    },
                                    "hide": false,
-                                   "query": "import \"strings\"\nfrom(bucket: \"kal\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) =>\n    r._measurement =~ /tele\\/.+\\/humidity$/\n    and contains(\n      value: strings.split(v: r._measurement, t: \"/\")[1],\n      set: ${device:json}\n    )\n    and r._field == \"value\"\n  )\n  |> map(fn: (r) => ({\n      r with\n      _value: float(v: r._value),\n  }))\n  |> drop(columns: [\"kind\", \"_field\"])\n",
+                                   "query": "import \"strings\"\nfrom(bucket: \"kal\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) =>\n    r._measurement =~ /kal\\/tele\\/.+\\/humidity$/\n    and contains(\n      value: strings.split(v: r._measurement, t: \"/\")[2],\n      set: ${device:json}\n    )\n    and r._field == \"value\"\n  )\n  |> map(fn: (r) => ({\n      r with\n      _value: float(v: r._value),\n  }))\n  |> drop(columns: [\"kind\", \"_field\"])\n",
                                    "refId": "B"
                             },
                             {
@@ -184,7 +184,7 @@
                                           "type": "influxdb"
                                    },
                                    "hide": false,
-                                   "query": "import \"strings\"\nfrom(bucket: \"kal\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) =>\n    r._measurement =~ /tele\\/.+\\/relay$/\n    and contains(\n      value: strings.split(v: r._measurement, t: \"/\")[1],\n      set: ${device:json}\n    )\n    and r._field == \"value\"\n  )\n  |> map(fn: (r) => ({\n      r with\n      _value: bool(v: r._value),\n  }))\n  |> drop(columns: [\"kind\", \"_field\"])\n",
+                                   "query": "import \"strings\"\nfrom(bucket: \"kal\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) =>\n    r._measurement =~ /kal\\/tele\\/.+\\/relay$/\n    and contains(\n      value: strings.split(v: r._measurement, t: \"/\")[2],\n      set: ${device:json}\n    )\n    and r._field == \"value\"\n  )\n  |> map(fn: (r) => ({\n      r with\n      _value: bool(v: r._value),\n  }))\n  |> drop(columns: [\"kind\", \"_field\"])\n",
                                    "refId": "C"
                             }
                      ],
@@ -219,7 +219,7 @@
                                    "query": "import \"influxdata/influxdb/v1\"\nv1.measurements(bucket: v.bucket)"
                             },
                             "refresh": 1,
-                            "regex": "tele/(?<device>.*)/.*",
+                            "regex": "kal/tele/(?<device>.*)/.*",
                             "type": "query"
                      }
               ]
