@@ -36,15 +36,15 @@ use zenoh_nostd::{EndPoint, Session, zsubscriber};
 extern crate alloc;
 
 #[cfg(feature = "aht20")]
-use kal::aht20::aht20_task;
-use kal::error::Error;
-use kal::kalval::{KAL_CHAN, KalVal};
-use kal::led::{led_query_cb, led_sub_task, led_task};
-use kal::network::{connection, net_task};
-use kal::relay::{relay_query_cb, relay_sub_task, relay_task};
+use kal_embed::aht20::aht20_task;
+use kal_embed::error::Error;
+use kal_embed::kalval::{KAL_CHAN, KalVal};
+use kal_embed::led::{led_query_cb, led_sub_task, led_task};
+use kal_embed::network::{connection, net_task};
+use kal_embed::relay::{relay_query_cb, relay_sub_task, relay_task};
 #[cfg(feature = "shtc3")]
-use kal::shtc3::shtc3_task;
-use kal::togglable::Togglable;
+use kal_embed::shtc3::shtc3_task;
+use kal_embed::togglable::Togglable;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
