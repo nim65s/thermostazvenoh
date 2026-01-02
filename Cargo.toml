@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["kal-embed"]
+members = ["kal-daemon","kal-embed"]
 
 [profile.dev]
 # Rust debug is too slow.
