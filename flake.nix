@@ -49,6 +49,20 @@
                   probe-rs-tools
                 ];
               };
+            packages = rec {
+              default = kal-embed;
+              kal-embed =
+                let
+                  cargo = lib.importTOML ./kal-daemon/Cargo.toml;
+                in
+                pkgs.rustPlatform.buildRustPackage {
+                  inherit (cargo.package) name version;
+                  src = lib.cleanSource ./kal-daemon;
+                  cargoLock = {
+                    lockFile = ./kal-daemon/Cargo.lock;
+                  };
+                };
+            };
           };
       }
     );
