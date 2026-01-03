@@ -57,6 +57,11 @@
       }
       {
         from = "host";
+        host.port = 7447;
+        guest.port = 7447;
+      }
+      {
+        from = "host";
         host.port = 8000;
         guest.port = 80;
       }

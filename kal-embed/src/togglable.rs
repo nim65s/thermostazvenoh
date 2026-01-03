@@ -46,9 +46,9 @@ impl<'a> From<&'a [u8]> for Togglable {
 impl Togglable {
     pub fn as_str(&self) -> &str {
         match self {
-            Togglable::On => "true",
-            Togglable::Off => "false",
-            Togglable::Toggle => "toggle",
+            Self::On => "true",
+            Self::Off => "false",
+            Self::Toggle => "toggle",
         }
     }
 }

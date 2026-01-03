@@ -4,3 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+chrono = "0.4.42"
+derive_more = { version = "2.1.1", features = ["add", "from", "mul"] }
+env_logger = "0.11.8"
+futures = "0.3.31"
+itertools = "0.14.0"
+log = "0.4.29"
+thiserror = "2.0.17"
+tokio = "1.48.0"
+zenoh = "1.7.1"
