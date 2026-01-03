@@ -18,12 +18,16 @@
       {
         systems = import inputs.systems;
         flake = {
+          overlays.default = final: _prev: {
+            kal-daemon = final.callPackage ./package.nix { };
+          };
           nixosModules.default = ./module.nix;
           nixosConfigurations.vm = inputs.nixpkgs.lib.nixosSystem {
             modules = [
               "${inputs.nixpkgs}/nixos/modules/virtualisation/qemu-vm.nix"
               self.nixosModules.default
               ./vm.nix
+              { nixpkgs.overlays = [ self.overlays.default ]; }
             ];
           };
         };
@@ -36,7 +40,10 @@
           {
             _module.args.pkgs = import inputs.nixpkgs {
               inherit system;
-              overlays = [ (import inputs.rust-overlay) ];
+              overlays = [
+                (import inputs.rust-overlay)
+                self.overlays.default
+              ];
             };
             devShells.default =
               with pkgs;
@@ -49,20 +56,7 @@
                   probe-rs-tools
                 ];
               };
-            packages = rec {
-              default = kal-embed;
-              kal-embed =
-                let
-                  cargo = lib.importTOML ./kal-daemon/Cargo.toml;
-                in
-                pkgs.rustPlatform.buildRustPackage {
-                  inherit (cargo.package) name version;
-                  src = lib.cleanSource ./kal-daemon;
-                  cargoLock = {
-                    lockFile = ./kal-daemon/Cargo.lock;
-                  };
-                };
-            };
+            packages.default = pkgs.kal-daemon;
           };
       }
     );

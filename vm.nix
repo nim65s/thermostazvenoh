@@ -2,9 +2,81 @@
   pkgs,
   ...
 }:
+let
+  radio = "wlan0";
+  moduleName = "kal";
+  network = "10.74.47";
+  wifiPassword = "password";
+in
 {
   # kal
-  services.kal.enable = true;
+  services."${moduleName}".enable = true;
+
+  # demo network
+  networking = {
+    firewall = {
+      allowedTCPPorts = [
+        53
+      ];
+      allowedUDPPorts = [
+        67
+        68
+        69
+      ];
+      trustedInterfaces = [ radio ];
+    };
+    interfaces."${radio}" = {
+      ipv4.addresses = [
+        {
+          address = "${network}.1";
+          prefixLength = 24;
+        }
+      ];
+      useDHCP = false;
+    };
+    nat = {
+      enable = true;
+      internalInterfaces = [ radio ];
+      externalInterface = "eth0";
+    };
+  };
+  services = {
+    dnsmasq = {
+      enable = true;
+      settings = {
+        dhcp-range = [ "${network}.10,${network}.100" ];
+        server = [ "9.9.9.9" ];
+        interface = radio;
+        bind-interfaces = true;
+        dhcp-authoritative = true;
+        dhcp-option = [
+          "option:router,${network}.1"
+          "option:dns-server,${network}.1"
+        ];
+      };
+    };
+    hostapd = {
+      enable = true;
+      radios = {
+        "${radio}" = {
+          countryCode = "FR";
+          channel = 1;
+          networks."${radio}" = {
+            ssid = moduleName;
+            authentication = {
+              # wpa3 does not seem to work with embassy esp yet
+              mode = "wpa2-sha256";
+              wpaPassword = wifiPassword;
+            };
+          };
+        };
+      };
+    };
+  };
+  systemd.services = {
+    dnsmasq.bindsTo = [ "network-addresses-${radio}.service" ];
+    "network-addresses-${radio}".unitConfig.Restart = "always";
+  };
 
   # keyboard layout
   console.useXkbConfig = true;
@@ -67,6 +139,8 @@
       }
     ];
   };
+  # grafana expect 3000, nginx proxy that to 80, and qemu formward to 8000
+  services.grafana.settings.server.root_url = "http://localhost:8000";
 
   # nix things
   nix.settings = {

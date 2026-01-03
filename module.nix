@@ -7,42 +7,16 @@
 let
   moduleName = "kal";
   cfg = config.services."${moduleName}";
-  network = "10.74.47";
   secretInfluxDBToken = "please-use-sops-nix-or-agenix";
-  wifiPassword = "password";
 in
 {
   options = {
     services."${moduleName}" = {
       enable = lib.mkEnableOption "${moduleName} service";
-      countryCode = lib.mkOption {
-        type = lib.types.str;
-        default = "FR";
-        description = "hostapd country code";
-      };
-      radio = lib.mkOption {
-        type = lib.types.str;
-        default = "wlan0";
-        description = "hostapd interface";
-      };
     };
   };
   config = lib.mkIf cfg.enable {
     services = {
-      dnsmasq = {
-        enable = true;
-        settings = {
-          dhcp-range = [ "${network}.10,${network}.100" ];
-          server = [ "9.9.9.9" ];
-          interface = cfg.radio;
-          bind-interfaces = true;
-          dhcp-authoritative = true;
-          dhcp-option = [
-            "option:router,${network}.1"
-            "option:dns-server,${network}.1"
-          ];
-        };
-      };
       grafana = {
         enable = true;
         provision = {
@@ -69,23 +43,6 @@ in
           ];
         };
       };
-      hostapd = {
-        enable = true;
-        radios = {
-          "${cfg.radio}" = {
-            inherit (cfg) countryCode;
-            channel = 1;
-            networks."${cfg.radio}" = {
-              ssid = moduleName;
-              authentication = {
-                # wpa3 does not seem to work with embassy esp yet
-                mode = "wpa2-sha256";
-                wpaPassword = wifiPassword;
-              };
-            };
-          };
-        };
-      };
       influxdb2 = {
         enable = true;
         provision = {
@@ -96,15 +53,6 @@ in
             tokenFile = pkgs.writeText "token" secretInfluxDBToken;
             passwordFile = pkgs.writeText "password" "not-${secretInfluxDBToken}";
           };
-          # organizations = {
-          #   "${moduleName}" = {
-          #     description = "${moduleName} organization";
-          #     auths."${moduleName}" = {
-          #       writeBuckets = [ "${moduleName}" ];
-          #       tokenFile = pkgs.writeText "token" secretInfluxDBToken;
-          #     };
-          #   };
-          # };
         };
       };
       nginx = {
@@ -155,37 +103,33 @@ in
     networking = {
       firewall = {
         allowedTCPPorts = [
-          53
           80
           1883
           7447
         ];
-        allowedUDPPorts = [
-          67
-          68
-          69
-        ];
-        trustedInterfaces = [ cfg.radio ];
-      };
-      interfaces."${cfg.radio}" = {
-        ipv4.addresses = [
-          {
-            address = "${network}.1";
-            prefixLength = 24;
-          }
-        ];
-        useDHCP = false;
-      };
-      nat = {
-        enable = true;
-        internalInterfaces = [ "wlan0" ];
-        externalInterface = "eth0";
-      };
-      networkmanager = {
-        unmanaged = [ "interface-name:${cfg.radio}" ];
-        wifi.powersave = false;
       };
     };
-    systemd.services.zenohd.after = [ "influxdb2.service" ];
+    systemd.services = {
+      zenohd = {
+        after = [ "influxdb2.service" ];
+        requires = [ "influxdb2.service" ];
+      };
+      kal-daemon = {
+        description = pkgs.kal-daemon.meta.description;
+        after = [ "zenohd.service" ];
+        requires = [ "zenohd.service" ];
+
+        before = [ "multi-user.target" ];
+        wantedBy = [ "multi-user.target" ];
+
+        serviceConfig = {
+          ExecStart = lib.getExe pkgs.kal-daemon;
+          Type = "exec";
+          DynamicUser = true;
+          Restart = "on-failure";
+          RestartSec = 5;
+        };
+      };
+    };
   };
 }

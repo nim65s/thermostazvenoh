@@ -11,8 +11,13 @@ const PASSWORD: Option<&str> = option_env!("PASSWORD");
 #[embassy_executor::task]
 pub async fn connection(mut controller: WifiController<'static>) {
     info!("start connection task");
+
+    let ssid = SSID.unwrap_or("kal");
+    let password = PASSWORD.unwrap_or("password");
+
     info!("Device capabilities: {:?}", controller.capabilities());
     loop {
+        info!("wifi (re)init");
         match esp_radio::wifi::sta_state() {
             WifiStaState::Connected => {
                 // wait until we're no longer connected
@@ -24,8 +29,8 @@ pub async fn connection(mut controller: WifiController<'static>) {
         if !matches!(controller.is_started(), Ok(true)) {
             let client_config = ModeConfig::Client(
                 ClientConfig::default()
-                    .with_ssid(SSID.unwrap_or("kal").into())
-                    .with_password(PASSWORD.unwrap_or("password").into()),
+                    .with_ssid(ssid.into())
+                    .with_password(password.into()),
             );
             controller.set_config(&client_config).unwrap();
             info!("Starting wifi");
@@ -38,8 +43,11 @@ pub async fn connection(mut controller: WifiController<'static>) {
                 .scan_with_config_async(scan_config)
                 .await
                 .unwrap();
-            for ap in result {
+            for ap in &result {
                 info!("{:?}", ap);
+            }
+            if !result.iter().any(|ap| ap.ssid == ssid) {
+                error!("ssid {} not yet available", ssid);
             }
         }
         info!("About to connect...");

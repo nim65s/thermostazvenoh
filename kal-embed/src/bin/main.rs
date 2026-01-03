@@ -216,7 +216,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
             zsubscriber!(QUEUE_SIZE: 8, MAX_KEYEXPR: 32, MAX_PAYLOAD: 128),
         )
         .await?;
-    session.get(ke_cmnd_relay, relay_query_cb).send().await?;
+    // session.get(ke_cmnd_relay, relay_query_cb).send().await?;
     spawner.spawn(relay_sub_task(async_sub)).ok();
 
     info!("say hello");
