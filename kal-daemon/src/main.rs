@@ -19,7 +19,7 @@ async fn main() {
         }
     }
     let mode_subscriber = session
-        .declare_subscriber("kal/tele/tasmota_43D8FD/temperature")
+        .declare_subscriber("kal/cmnd/daemon/mode")
         .await
         .unwrap();
     let temperature_subscriber = session
