@@ -123,6 +123,7 @@ in
         wantedBy = [ "multi-user.target" ];
 
         serviceConfig = {
+          Environment = "RUST_LOG=debug";
           ExecStart = lib.getExe pkgs.kal-daemon;
           Type = "exec";
           DynamicUser = true;
