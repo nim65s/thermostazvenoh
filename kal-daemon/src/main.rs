@@ -34,6 +34,13 @@ async fn main() {
                     if let Ok(payload) = sample.payload().try_to_string() {
                         mode = payload.as_ref().into();
                         info!("mode {mode}");
+                        if mode == Mode::On {
+                            debug!("-> relay On");
+                            session.put("kal/cmnd/garage/relay", "On").await.unwrap();
+                        } else if mode == Mode::Off {
+                            debug!("-> relay Off");
+                            session.put("kal/cmnd/garage/relay", "Off").await.unwrap();
+                        }
                     }
                 }
             }
