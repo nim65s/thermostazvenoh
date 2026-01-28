@@ -1,10 +1,6 @@
 # Kal
 
-example infra & iot, with rust, zenoh, nix, embassy, esp32, grafana, influxdb, mqtt (for no reason)
-
-## example use case
-
-between 5 and 8 am, if less that 15.5°C, turn the heater on until 16.3°C
+An over-engineered home-automation setup to play with rust, zenoh, nix, embassy, esp32, grafana, influxdb, mqtt, and home-assistant.
 
 ## example VM
 
@@ -19,3 +15,8 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 2222 root@loc
 cd kal-embed
 cargo run
 ```
+
+## Real setup
+
+The architecture I needed for this demo is not exactly the same as my real setup, which is very simplified, and available here:
+https://github.com/nim65s/dotfiles/tree/main/machines/calcifer/kal
